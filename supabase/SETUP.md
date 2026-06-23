@@ -63,3 +63,22 @@ Magic Link 登入後，在網站按「寫入 Supabase」，把助理提供的 12
 - 「寫入 Supabase」會建立 planned workouts。
 - 「儲存回饋」會建立 workout log。
 - JSON/CSV 匯出符合目前資料。
+
+## 常見錯誤
+
+### `PGRST205 Could not find the table ... in the schema cache`
+
+這代表目前 Supabase project 的 PostgREST API 找不到資料表。通常原因是：
+
+- 還沒有在 SQL Editor 執行 `supabase/schema.sql`
+- SQL 執行中途失敗
+- schema 剛建立，但 API schema cache 尚未刷新
+
+處理方式：
+
+1. 到 Supabase SQL Editor。
+2. 重新完整執行 `supabase/schema.sql`。
+3. 等 10-30 秒。
+4. 回到網站按「重新整理」。
+
+`schema.sql` 已設計成可重複執行，並在最後包含 `notify pgrst, 'reload schema';` 來刷新 schema cache。

@@ -85,6 +85,15 @@ alter table public.planned_workouts enable row level security;
 alter table public.workout_logs enable row level security;
 alter table public.trail_routes enable row level security;
 
+drop policy if exists "Users read own plan versions" on public.plan_versions;
+drop policy if exists "Users write own plan versions" on public.plan_versions;
+drop policy if exists "Users read own planned workouts" on public.planned_workouts;
+drop policy if exists "Users write own planned workouts" on public.planned_workouts;
+drop policy if exists "Users read own workout logs" on public.workout_logs;
+drop policy if exists "Users write own workout logs" on public.workout_logs;
+drop policy if exists "Users read own or public trail routes" on public.trail_routes;
+drop policy if exists "Users write own trail routes" on public.trail_routes;
+
 create policy "Users read own plan versions"
 on public.plan_versions for select
 to authenticated
@@ -128,3 +137,5 @@ on public.trail_routes for all
 to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
+
+notify pgrst, 'reload schema';

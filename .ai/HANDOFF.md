@@ -2,49 +2,60 @@
 
 ## This Round
 
-Published the project to `https://github.com/yung13yubabie/training-dashboard` and deployed it with GitHub Pages.
+Investigated the login-time Supabase failure, rebuilt the UI in a Strava-inspired activity-dashboard style, and fixed local source encoding issues before redeployment.
+
+## Root Cause Found
+
+The live Supabase project returns `PGRST205` for all expected tables:
+
+- `public.plan_versions`
+- `public.planned_workouts`
+- `public.workout_logs`
+- `public.trail_routes`
+
+This means the REST API cannot find those tables in the schema cache. The most likely cause is that `supabase/schema.sql` has not been successfully executed in the live Supabase project, or the schema cache has not reloaded after SQL execution.
 
 ## Added or Modified
 
-- `.github/workflows/deploy.yml`
-- `vite.config.ts`
-- `README.md`
+- `src/App.tsx`
+- `src/App.css`
+- `src/data/trainingPlan.ts`
+- `supabase/schema.sql`
 - `supabase/SETUP.md`
-- `.ai/CURRENT_STATE.md`
 - `.ai/TASKS.md`
 - `.ai/HANDOFF.md`
 
-## Important Deployment Notes
+## Important Fixes
 
-- GitHub Pages target URL is `https://yung13yubabie.github.io/training-dashboard/`.
-- Vite uses `base: '/training-dashboard/'` only when `GITHUB_PAGES=true`.
-- The workflow builds `dist` in GitHub Actions and deploys via GitHub Pages artifact.
-- `.env.local`, `node_modules`, and `dist` are excluded by `.gitignore`.
-- Supabase production values should be stored in GitHub Secrets, not committed.
+- UI now shows actionable Supabase diagnostics instead of only a generic reload/login message.
+- `PGRST205` maps to a clear "run schema.sql" instruction.
+- `supabase/schema.sql` drops existing policies before recreating them, so it is safer to rerun.
+- `supabase/schema.sql` ends with `notify pgrst, 'reload schema';`.
+- Rebuilt the UI with Strava-inspired patterns: orange primary actions, activity feed, metric strips, compact white cards, and denser dashboard scanning.
+- Removed mojibake from the modified app source and training plan seed data.
 
 ## Verified This Round
 
-- Local `.gitignore` excludes `.env.local`, `node_modules`, and `dist`.
-- GitHub CLI is authenticated as `yung13yubabie`.
-- Repository `yung13yubabie/training-dashboard` exists.
+- Direct Supabase anon query reproduces `PGRST205` for the expected tables.
 - `npm run lint` passes.
 - `npm run build` passes.
 - `GITHUB_PAGES=true npm run build` uses the Pages base path.
-- GitHub Secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` were set without committing `.env.local`.
-- GitHub Pages is configured with `build_type=workflow`.
-- GitHub Actions run `28022870332` completed successfully.
-- Public URL `https://yung13yubabie.github.io/training-dashboard/` returns HTTP 200.
-- Chrome headless verified title/nav render in Traditional Chinese with no console errors at 390 px.
-- Production page does not show the missing Supabase configuration warning.
+- Bundle text scan shows no old mojibake marker codepoints.
+- Local Chrome headless renders the redesigned UI at 320, 768, 1024, and 1440 px with no console errors.
+- Local Chrome headless shows no document/body horizontal overflow at those widths.
 
 ## Still Need Verification
 
-- Supabase Magic Link redirect works with the Pages URL.
-- Supabase RLS insert/select behavior against the live project.
+- User must run `supabase/schema.sql` in the live Supabase SQL Editor.
+- Magic Link redirect must be tested again after the schema exists.
+- "寫入 Supabase" must be tested after login.
+- A workout log insert/select round trip must be tested after seeding.
+- GitHub Pages deployment for this round must complete after pushing.
 
 ## Next Steps
 
-1. Add `https://yung13yubabie.github.io/training-dashboard/` to Supabase Auth redirect settings if not already done.
-2. Test Magic Link login on the public Pages URL.
-3. Press "寫入 Supabase" after login and confirm planned workouts are inserted.
-4. Submit one workout log and confirm it appears after refresh.
+1. Commit and push this round.
+2. Watch GitHub Actions deploy.
+3. Verify the public Pages URL in Chrome.
+4. In Supabase SQL Editor, run `supabase/schema.sql`.
+5. Re-login and test "寫入 Supabase".

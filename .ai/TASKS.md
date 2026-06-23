@@ -2,7 +2,6 @@
 
 ## TODO
 
-- Create a Supabase project and provide the project URL plus anon public key.
 - Run `supabase/schema.sql` in the Supabase SQL editor.
 - Configure Supabase Magic Link redirect URLs for local development and GitHub Pages.
 - Seed the initial 12-week plan after first login.
@@ -31,3 +30,8 @@
 - Published repository to `https://github.com/yung13yubabie/training-dashboard`.
 - Configured GitHub Pages deployment through GitHub Actions.
 - Verified the public Pages URL loads at `https://yung13yubabie.github.io/training-dashboard/`.
+- Identified the login-time Supabase failure as `PGRST205`, meaning the live project cannot find the expected tables in the schema cache.
+- Added clearer Supabase diagnostics for missing schema / RLS failures.
+- Made `supabase/schema.sql` safer to rerun by dropping existing policies before recreating them and notifying PostgREST to reload schema.
+- Reworked the UI toward a Strava-inspired activity dashboard style.
+- Verified the redesigned local UI at 320, 768, 1024, and 1440 px with Chrome headless.

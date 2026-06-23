@@ -63,7 +63,7 @@ export const buildTrainingPlan = (): PlannedWorkout[] =>
         day_label: weekdays[1],
         workout_type: 'zone2',
         title: 'Zone 2 有氧跑',
-        prescription: '能講話的輕鬆跑。配速不要逞強，以心率與體感為主。',
+        prescription: '能講完整句子的輕鬆跑。配速不要逞強，以心率與體感為主。',
         intensity_target: '心率 Zone 2，RPE 3-4',
         duration_min: zone2Duration,
         distance_km: null,

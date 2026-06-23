@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
   Activity,
+  AlertTriangle,
   CalendarDays,
   CheckCircle2,
   Database,
@@ -10,7 +11,7 @@ import {
   Mail,
   MapPinned,
   RefreshCw,
-  ShieldAlert,
+  ShieldCheck,
   TrendingUp,
 } from 'lucide-react'
 import {
@@ -31,10 +32,67 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import type { PlannedWorkout, WorkoutLog } from './types'
 
 const planSeed = buildTrainingPlan()
-
 const todayIso = new Date().toISOString().slice(0, 10)
 
 type Notice = { kind: 'ok' | 'warn' | 'error'; text: string } | null
+type DataStatus = 'idle' | 'ready' | 'schema-missing' | 'auth-or-rls' | 'unknown-error'
+type SupabaseErrorLike = {
+  code?: string
+  message?: string
+  details?: string | null
+  hint?: string | null
+}
+type Diagnostic = {
+  table: string
+  label: string
+  ok: boolean
+  code?: string
+  message?: string
+}
+
+const dayLabels: Record<string, string> = {
+  Tue: '週二',
+  Wed: '週三',
+  Thu: '週四',
+  Sat: '週六',
+  Sun: '週日',
+}
+
+const dayOrder: Record<string, number> = {
+  Tue: 1,
+  Wed: 2,
+  Thu: 3,
+  Sat: 4,
+  Sun: 5,
+}
+
+const workoutTypeLabels: Record<string, string> = {
+  calibration: '基準測試',
+  vo2max: 'VO2max',
+  threshold: '閾值',
+  zone2: 'Zone 2',
+  neuromuscular: '神經刺激',
+  trail: '越野長跑',
+  recovery: '恢復',
+  rest: '休息',
+}
+
+const priorityLabels: Record<string, string> = {
+  low: '輔助',
+  normal: '一般',
+  key: '關鍵',
+}
+
+const difficultyLabels: Record<string, string> = {
+  easy: '簡單',
+  moderate: '中等',
+  hard: '困難',
+}
+
+const dataLabels: Record<string, string> = {
+  planned_workouts: '計畫課表',
+  workout_logs: '訓練紀錄',
+}
 
 const emptyLog = (plannedWorkoutId: string | null): WorkoutLog => ({
   planned_workout_id: plannedWorkoutId,
@@ -60,48 +118,9 @@ const emptyLog = (plannedWorkoutId: string | null): WorkoutLog => ({
   notes: null,
 })
 
-const dayLabels: Record<string, string> = {
-  Tue: '週二',
-  Wed: '週三',
-  Thu: '週四',
-  Sat: '週六',
-  Sun: '週日',
-}
-
-const workoutTypeLabels: Record<string, string> = {
-  calibration: '基準測試',
-  vo2max: '最大攝氧量',
-  threshold: '閾值',
-  zone2: 'Zone 2 有氧',
-  neuromuscular: '神經肌肉刺激',
-  trail: '越野長跑',
-  recovery: '恢復',
-  rest: '休息',
-}
-
-const priorityLabels: Record<string, string> = {
-  low: '低',
-  normal: '一般',
-  key: '關鍵',
-}
-
-const difficultyLabels: Record<string, string> = {
-  easy: '簡單',
-  moderate: '中等',
-  hard: '困難',
-}
-
 const toNumberOrNull = (value: FormDataEntryValue | null) => {
   if (typeof value !== 'string' || value.trim() === '') return null
   return Number(value)
-}
-
-const dayOrder: Record<string, number> = {
-  Tue: 1,
-  Wed: 2,
-  Thu: 3,
-  Sat: 4,
-  Sun: 5,
 }
 
 const sortPlan = (workouts: PlannedWorkout[]) =>
@@ -111,34 +130,42 @@ const sortPlan = (workouts: PlannedWorkout[]) =>
       (dayOrder[a.day_label] ?? 99) - (dayOrder[b.day_label] ?? 99),
   )
 
-const fallbackError = (action: string) => {
-  switch (action) {
-    case 'load':
-      return '無法讀取資料。請確認 Supabase schema 已建立、RLS 設定正確，並重新登入後再試。'
-    case 'magic-link':
-      return 'Magic Link 寄送失敗。請確認 Email 格式、Supabase Auth 設定與 Redirect URL。'
-    case 'plan-version':
-      return '建立課表版本失敗。請確認資料表已建立，且你目前已登入。'
-    case 'seed-plan':
-      return '寫入 12 週課表失敗。請確認 schema 已執行，並且 RLS 允許目前登入帳號寫入。'
-    case 'save-log':
-      return '儲存訓練回饋失敗。請確認已登入、資料表已建立，並檢查欄位數值是否合理。'
-    default:
-      return '操作失敗。請確認 Supabase 設定與登入狀態。'
+const buildLoadMessage = (errors: SupabaseErrorLike[]) => {
+  if (errors.some((error) => error.code === 'PGRST205')) {
+    return 'Supabase 找不到訓練資料表。請到 Supabase SQL Editor 執行 `supabase/schema.sql`，再回來重新整理。'
   }
+
+  if (errors.some((error) => error.code === '42501' || error.message?.toLowerCase().includes('permission'))) {
+    return '資料表存在，但目前登入帳號沒有讀取權限。請檢查 RLS policy 是否已執行，並確認你是用 Magic Link 登入。'
+  }
+
+  return '資料讀取失敗。請查看下方診斷項目，確認 schema、RLS 與 Auth redirect 設定。'
+}
+
+const getDataStatus = (errors: SupabaseErrorLike[]): DataStatus => {
+  if (!errors.length) return 'ready'
+  if (errors.some((error) => error.code === 'PGRST205')) return 'schema-missing'
+  if (errors.some((error) => error.code === '42501' || error.message?.toLowerCase().includes('permission'))) {
+    return 'auth-or-rls'
+  }
+  return 'unknown-error'
 }
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [email, setEmail] = useState('')
   const [notice, setNotice] = useState<Notice>(null)
+  const [dataStatus, setDataStatus] = useState<DataStatus>('idle')
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
   const [plannedWorkouts, setPlannedWorkouts] = useState<PlannedWorkout[]>([])
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(planSeed[0]?.id ?? null)
   const [isLoading, setIsLoading] = useState(false)
 
-  const selectedWorkout =
-    plannedWorkouts.find((workout) => workout.id === selectedWorkoutId) ?? planSeed[0]
+  const activePlan = plannedWorkouts.length ? plannedWorkouts : planSeed
+  const selectedWorkout = activePlan.find((workout) => workout.id === selectedWorkoutId) ?? activePlan[0]
+  const setupBlocked = !isSupabaseConfigured
+  const hasRemotePlan = plannedWorkouts.length > 0
 
   const weeklyAudit = useMemo(() => {
     const lastSeven = logs.slice(0, 7)
@@ -187,29 +214,43 @@ function App() {
     setIsLoading(true)
     setNotice(null)
 
-    const [{ data: workouts, error: workoutsError }, { data: workoutLogs, error: logsError }] =
-      await Promise.all([
-        supabase
-          .from('planned_workouts')
-          .select('*')
-          .order('week_number', { ascending: true })
-          .order('day_label', { ascending: true }),
-        supabase.from('workout_logs').select('*').order('workout_date', { ascending: false }),
-      ])
+    const [workoutsResult, logsResult] = await Promise.all([
+      supabase
+        .from('planned_workouts')
+        .select('*')
+        .order('week_number', { ascending: true })
+        .order('day_label', { ascending: true }),
+      supabase.from('workout_logs').select('*').order('workout_date', { ascending: false }),
+    ])
 
-    if (workoutsError || logsError) {
-      console.error('Supabase load failed', workoutsError ?? logsError)
-      setNotice({
-        kind: 'error',
-        text: fallbackError('load'),
-      })
+    const results = [
+      { table: 'planned_workouts', ...workoutsResult },
+      { table: 'workout_logs', ...logsResult },
+    ]
+    const errors = results.map((result) => result.error).filter(Boolean) as SupabaseErrorLike[]
+
+    setDiagnostics(
+      results.map((result) => ({
+        table: result.table,
+        label: dataLabels[result.table],
+        ok: !result.error,
+        code: result.error?.code,
+        message: result.error?.message,
+      })),
+    )
+
+    if (errors.length) {
+      console.error('Supabase load failed', results)
+      setDataStatus(getDataStatus(errors))
+      setNotice({ kind: 'error', text: buildLoadMessage(errors) })
     } else {
-      const sortedWorkouts = sortPlan((workouts as PlannedWorkout[]) ?? [])
+      const sortedWorkouts = sortPlan((workoutsResult.data as PlannedWorkout[]) ?? [])
       setPlannedWorkouts(sortedWorkouts)
+      setLogs((logsResult.data as WorkoutLog[]) ?? [])
+      setDataStatus('ready')
       if (sortedWorkouts.length && !sortedWorkouts.some((workout) => workout.id === selectedWorkoutId)) {
         setSelectedWorkoutId(sortedWorkouts[0].id)
       }
-      setLogs((workoutLogs as WorkoutLog[]) ?? [])
     }
 
     setIsLoading(false)
@@ -229,12 +270,12 @@ function App() {
       },
     })
 
-    setNotice(
-      error
-        ? { kind: 'error', text: fallbackError('magic-link') }
-        : { kind: 'ok', text: 'Magic Link 已寄出。請到信箱點連結，登入後回到這個頁面。' },
-    )
-    if (error) console.error('Magic Link failed', error)
+    if (error) {
+      console.error('Magic Link failed', error)
+      setNotice({ kind: 'error', text: 'Magic Link 寄送失敗。請確認 Email、Supabase Auth 與 Redirect URL 設定。' })
+    } else {
+      setNotice({ kind: 'ok', text: 'Magic Link 已寄出。請到信箱點登入連結，再回到這個頁面。' })
+    }
   }
 
   const signOut = async () => {
@@ -242,11 +283,14 @@ function App() {
     await supabase.auth.signOut()
     setPlannedWorkouts([])
     setLogs([])
+    setDiagnostics([])
+    setDataStatus('idle')
   }
 
   const seedPlan = async () => {
     if (!supabase || !session) return
     setIsLoading(true)
+    setNotice(null)
 
     const { data: version, error: versionError } = await supabase
       .from('plan_versions')
@@ -262,7 +306,7 @@ function App() {
 
     if (versionError) {
       console.error('Create plan version failed', versionError)
-      setNotice({ kind: 'error', text: fallbackError('plan-version') })
+      setNotice({ kind: 'error', text: buildLoadMessage([versionError]) })
       setIsLoading(false)
       return
     }
@@ -287,7 +331,7 @@ function App() {
 
     if (error) {
       console.error('Seed plan failed', error)
-      setNotice({ kind: 'error', text: fallbackError('seed-plan') })
+      setNotice({ kind: 'error', text: buildLoadMessage([error]) })
     } else {
       setNotice({ kind: 'ok', text: '已把初始 12 週課表寫入 Supabase。' })
       await refreshData()
@@ -334,7 +378,7 @@ function App() {
 
     if (error) {
       console.error('Save workout log failed', error)
-      setNotice({ kind: 'error', text: fallbackError('save-log') })
+      setNotice({ kind: 'error', text: buildLoadMessage([error]) })
     } else {
       setNotice({ kind: 'ok', text: '訓練回饋已儲存。' })
       event.currentTarget.reset()
@@ -366,100 +410,131 @@ function App() {
       ]),
     ]
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
-    downloadBlob(new Blob([csv], { type: 'text/csv' }), `training-logs-${todayIso}.csv`)
+    downloadBlob(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `training-logs-${todayIso}.csv`)
   }
 
-  const activePlan = plannedWorkouts.length ? plannedWorkouts : planSeed
-  const setupBlocked = !isSupabaseConfigured
+  const activeWeek = selectedWorkout?.week_number ?? 1
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <Activity size={24} />
-          <span>跑步訓練儀表板</span>
+          <span className="brand-mark">td</span>
+          <span>Training Dashboard</span>
         </div>
-        <nav>
-          <a href="#today">今日課表</a>
-          <a href="#feedback">訓練回饋</a>
-          <a href="#audit">週稽核</a>
-          <a href="#plan">12 週課表</a>
-          <a href="#routes">越野路線</a>
+        <nav aria-label="主要導覽">
+          <a href="#today">今日</a>
+          <a href="#feed">活動</a>
+          <a href="#feedback">回饋</a>
+          <a href="#plan">課表</a>
+          <a href="#routes">路線</a>
         </nav>
         <div className="sidebar-footer">
-          <ShieldAlert size={18} />
-          <span>僅使用 Magic Link 與 RLS。前端不可放服務角色金鑰。</span>
+          <ShieldCheck size={18} />
+          <span>Magic Link + RLS。前端只放 Supabase anon key，不放 service role。</span>
         </div>
       </aside>
 
       <main className="content">
-        <header className="topbar">
-          <div>
+        <header className="hero">
+          <div className="hero-copy">
+            <span className="eyebrow">12 週跑步訓練</span>
             <h1>跑步訓練儀表板</h1>
-            <p>最大攝氧量、神經肌肉刺激、Zone 2 有氧基礎與週末越野耐力。</p>
+            <p>以 VO2max、神經刺激、Zone 2 基礎與週末越野耐力為主軸。每天填回饋，週週稽核。</p>
+            <div className="hero-actions">
+              <button type="button" onClick={exportJson}>
+                <Download size={16} /> 匯出 JSON
+              </button>
+              <button type="button" className="secondary" onClick={exportCsv} disabled={!logs.length}>
+                <Download size={16} /> 匯出 CSV
+              </button>
+            </div>
           </div>
-          <div className="topbar-actions">
-            <button type="button" onClick={exportJson}>
-              <Download size={16} /> JSON
-            </button>
-            <button type="button" onClick={exportCsv} disabled={!logs.length}>
-              <Download size={16} /> CSV
-            </button>
+          <div className="hero-stats" aria-label="目前訓練摘要">
+            <Metric label="本週完成" value={`${weeklyAudit.completed}/7`} />
+            <Metric label="總分鐘" value={weeklyAudit.duration} />
+            <Metric label="Zone 2" value={`${weeklyAudit.zone2} 分`} />
+            <Metric label="疼痛峰值" value={weeklyAudit.maxPain} />
           </div>
         </header>
 
         {setupBlocked && (
-          <section className="notice warn">
-            <Lock size={18} />
-            <span>
-              尚未完成 Supabase 設定。請從 `.env.example` 建立 `.env.local`，填入 Project URL 與匿名公開金鑰。
-            </span>
-          </section>
+          <NoticePanel kind="warn" icon={<Lock size={18} />}>
+            尚未完成 Supabase 設定。請建立 `.env.local`，填入 Project URL 與 anon public key。
+          </NoticePanel>
         )}
 
         {notice && (
-          <section className={`notice ${notice.kind}`}>
-            <span>{notice.text}</span>
-          </section>
+          <NoticePanel kind={notice.kind} icon={notice.kind === 'error' ? <AlertTriangle size={18} /> : undefined}>
+            {notice.text}
+          </NoticePanel>
         )}
 
-        <section className="auth-card">
+        <section className="auth-card" aria-label="登入狀態">
           {session ? (
             <>
               <div>
                 <strong>{session.user.email}</strong>
-                <span>已登入，session 目前有效</span>
+                <span>已登入。資料狀態：{statusLabel(dataStatus)}</span>
               </div>
-              <button type="button" onClick={refreshData} disabled={isLoading}>
-                <RefreshCw size={16} /> 重新整理
-              </button>
-              <button type="button" onClick={signOut}>登出</button>
+              <div className="auth-actions">
+                <button type="button" className="secondary" onClick={refreshData} disabled={isLoading}>
+                  <RefreshCw size={16} /> 重新整理
+                </button>
+                <button type="button" className="ghost" onClick={signOut}>
+                  登出
+                </button>
+              </div>
             </>
           ) : (
             <>
               <div>
                 <strong>Magic Link 登入</strong>
-                <span>登入後才能寫入課表與儲存每日回饋。</span>
+                <span>登入後才能寫入課表與儲存每日訓練。</span>
               </div>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={!supabase}
-              />
-              <button type="button" onClick={signIn} disabled={!supabase || !email}>
-                <Mail size={16} /> 寄出登入連結
-              </button>
+              <div className="auth-actions">
+                <input
+                  type="email"
+                  aria-label="Email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={!supabase}
+                />
+                <button type="button" onClick={signIn} disabled={!supabase || !email}>
+                  <Mail size={16} /> 寄出連結
+                </button>
+              </div>
             </>
           )}
         </section>
 
-        <section className="grid two">
-          <article className="panel" id="today">
-            <div className="panel-heading">
+        {diagnostics.length > 0 && dataStatus !== 'ready' && (
+          <section className="diagnostic-panel" aria-label="Supabase 診斷">
+            <div>
+              <span className="eyebrow">Supabase 診斷</span>
+              <h2>{dataStatus === 'schema-missing' ? '資料表尚未建立' : '資料連線需要檢查'}</h2>
+              <p>
+                偵測到資料庫讀取失敗。若代碼是 PGRST205，請在 Supabase SQL Editor 執行
+                `supabase/schema.sql`，再按重新整理。
+              </p>
+            </div>
+            <div className="diagnostic-list">
+              {diagnostics.map((item) => (
+                <div className={item.ok ? 'diagnostic-item ok' : 'diagnostic-item error'} key={item.table}>
+                  <strong>{item.label}</strong>
+                  <span>{item.ok ? 'OK' : `${item.code ?? 'ERROR'}：${item.message ?? '讀取失敗'}`}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="dashboard-grid">
+          <article className="workout-card" id="today">
+            <div className="section-heading">
               <span><CalendarDays size={18} /> 今日課表</span>
-              <select value={selectedWorkoutId ?? ''} onChange={(event) => setSelectedWorkoutId(event.target.value)}>
+              <select value={selectedWorkout?.id ?? ''} onChange={(event) => setSelectedWorkoutId(event.target.value)}>
                 {activePlan.slice(0, 20).map((workout) => (
                   <option key={workout.id} value={workout.id}>
                     第 {workout.week_number} 週 {dayLabels[workout.day_label] ?? workout.day_label} - {workout.title}
@@ -467,38 +542,96 @@ function App() {
                 ))}
               </select>
             </div>
-            <h2>{selectedWorkout.title}</h2>
-            <p className="prescription">{selectedWorkout.prescription}</p>
-            <div className="metric-row">
-              <Metric label="強度目標" value={selectedWorkout.intensity_target} />
-              <Metric label="時間" value={`${selectedWorkout.duration_min ?? '-'} 分鐘`} />
-              <Metric label="類型" value={workoutTypeLabels[selectedWorkout.workout_type] ?? selectedWorkout.workout_type} />
-              <Metric label="優先度" value={priorityLabels[selectedWorkout.priority] ?? selectedWorkout.priority} />
+            <div className="workout-main">
+              <span className={`type-chip ${selectedWorkout?.priority ?? 'normal'}`}>
+                {priorityLabels[selectedWorkout?.priority ?? 'normal']}課
+              </span>
+              <h2>{selectedWorkout?.title}</h2>
+              <p>{selectedWorkout?.prescription}</p>
+            </div>
+            <div className="metric-strip">
+              <Metric label="週次" value={`W${activeWeek}`} />
+              <Metric label="類型" value={workoutTypeLabels[selectedWorkout?.workout_type ?? 'zone2']} />
+              <Metric label="時間" value={`${selectedWorkout?.duration_min ?? '-'} 分`} />
+              <Metric label="目標" value={selectedWorkout?.intensity_target ?? '-'} />
             </div>
           </article>
 
-          <article className="panel" id="audit">
-            <div className="panel-heading">
-              <span><TrendingUp size={18} /> 週稽核</span>
-              <span className={weeklyAudit.maxPain >= 4 || weeklyAudit.avgFatigue >= 7 ? 'risk high' : 'risk ok'}>
-                {weeklyAudit.maxPain >= 4 || weeklyAudit.avgFatigue >= 7 ? '需要檢查' : '穩定'}
-              </span>
+          <aside className="side-stack">
+            <article className="status-card">
+              <div className="section-heading compact">
+                <span><TrendingUp size={18} /> 週稽核</span>
+                <span className={weeklyAudit.maxPain >= 4 || weeklyAudit.avgFatigue >= 7 ? 'risk high' : 'risk ok'}>
+                  {weeklyAudit.maxPain >= 4 || weeklyAudit.avgFatigue >= 7 ? '需要檢查' : '穩定'}
+                </span>
+              </div>
+              <div className="mini-metrics">
+                <Metric label="高強度" value={`${weeklyAudit.high} 分`} />
+                <Metric label="平均疲勞" value={weeklyAudit.avgFatigue} />
+              </div>
+            </article>
+
+            <article className="status-card">
+              <div className="section-heading compact">
+                <span><Database size={18} /> Supabase</span>
+              </div>
+              <p>{hasRemotePlan ? '已讀取雲端課表。' : '目前顯示本地 12 週預設課表。登入後可寫入 Supabase。'}</p>
+              <button type="button" onClick={seedPlan} disabled={!session || hasRemotePlan || isLoading}>
+                寫入 Supabase
+              </button>
+            </article>
+          </aside>
+        </section>
+
+        <section className="feed-grid">
+          <article className="panel" id="feed">
+            <div className="section-heading">
+              <span><Activity size={18} /> 近期活動</span>
+              <span className="muted">像活動 feed 一樣快速掃描訓練狀態</span>
             </div>
-            <div className="metric-row">
-              <Metric label="完成數" value={`${weeklyAudit.completed}/7`} />
-              <Metric label="總分鐘" value={weeklyAudit.duration} />
-              <Metric label="Zone 2" value={`${weeklyAudit.zone2} 分鐘`} />
-              <Metric label="高強度" value={`${weeklyAudit.high} 分鐘`} />
-              <Metric label="最高疼痛" value={weeklyAudit.maxPain} />
-              <Metric label="平均疲勞" value={weeklyAudit.avgFatigue} />
-            </div>
+            <ActivityFeed logs={logs} fallbackPlan={activePlan.slice(0, 5)} />
+          </article>
+
+          <article className="panel chart-panel">
+            <div className="section-heading"><span>訓練負荷</span></div>
+            {chartData.length ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" minTickGap={18} interval="preserveStartEnd" tick={{ fontSize: 11 }} />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="load" stroke="#fc4c02" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="pain" stroke="#111827" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState title="還沒有圖表資料" text="儲存第一筆訓練回饋後，這裡會顯示負荷與疼痛趨勢。" />
+            )}
+          </article>
+
+          <article className="panel chart-panel">
+            <div className="section-heading"><span>Zone 2 分鐘</span></div>
+            {chartData.length ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" minTickGap={18} interval="preserveStartEnd" tick={{ fontSize: 11 }} />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="z2" fill="#fc4c02" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState title="等待 Zone 資料" text="從 Amazfit/Zepp 手錶填入各區間分鐘數後，週稽核會更準。" />
+            )}
           </article>
         </section>
 
         <section className="panel" id="feedback">
-          <div className="panel-heading">
+          <div className="section-heading">
             <span><CheckCircle2 size={18} /> 訓練回饋</span>
-            <span>標準欄位約 2 分鐘完成，細節可選填</span>
+            <span className="muted">標準欄位約 2 分鐘完成，細節可選填</span>
           </div>
           <form className="feedback-form" onSubmit={submitLog}>
             <Field label="日期" name="workout_date" type="date" defaultValue={todayIso} />
@@ -526,45 +659,16 @@ function App() {
               備註
               <textarea name="notes" rows={3} placeholder="今天感覺如何？有沒有異常、疼痛、睡眠或路線狀況？" />
             </label>
-            <button type="submit" disabled={!session || !supabase}>儲存回饋</button>
+            <button type="submit" disabled={!session || !supabase || dataStatus === 'schema-missing'}>
+              儲存回饋
+            </button>
           </form>
         </section>
 
-        <section className="grid two">
-          <article className="panel chart-panel">
-            <div className="panel-heading"><span>訓練負荷</span></div>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" minTickGap={18} interval="preserveStartEnd" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="load" stroke="#0f766e" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="pain" stroke="#dc2626" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </article>
-
-          <article className="panel chart-panel">
-            <div className="panel-heading"><span>Zone 2 分鐘</span></div>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" minTickGap={18} interval="preserveStartEnd" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="z2" fill="#14b8a6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </article>
-        </section>
-
         <section className="panel" id="plan">
-          <div className="panel-heading">
+          <div className="section-heading">
             <span><Database size={18} /> 12 週課表</span>
-            <button type="button" onClick={seedPlan} disabled={!session || plannedWorkouts.length > 0 || isLoading}>
-              寫入 Supabase
-            </button>
+            <span className="muted">目前顯示第 {activeWeek} 週附近的訓練週期</span>
           </div>
           <div className="table-wrap">
             <table>
@@ -595,16 +699,22 @@ function App() {
         </section>
 
         <section className="panel" id="routes">
-          <div className="panel-heading">
+          <div className="section-heading">
             <span><MapPinned size={18} /> 越野路線</span>
-            <span>台北/桃園，大眾運輸優先的候選路線</span>
+            <span className="muted">台北/桃園，大眾運輸優先</span>
           </div>
           <div className="route-grid">
             {trailRoutes.map((route) => (
               <article className="route-card" key={route.id}>
-                <strong>{route.name}</strong>
-                <span>{route.area} / {difficultyLabels[route.difficulty] ?? route.difficulty}</span>
+                <div>
+                  <strong>{route.name}</strong>
+                  <span>{route.area} / {difficultyLabels[route.difficulty]}</span>
+                </div>
                 <p>{route.role}</p>
+                <div className="route-stats">
+                  <Metric label="距離" value={`${route.distance_km ?? '-'} km`} />
+                  <Metric label="爬升" value={`${route.elevation_gain_m ?? '-'} m`} />
+                </div>
                 <small>{route.access}</small>
                 {route.source_url && (
                   <a href={route.source_url} target="_blank" rel="noopener noreferrer">
@@ -616,6 +726,66 @@ function App() {
           </div>
         </section>
       </main>
+    </div>
+  )
+}
+
+function NoticePanel({
+  kind,
+  icon,
+  children,
+}: {
+  kind: 'ok' | 'warn' | 'error'
+  icon?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className={`notice ${kind}`} role={kind === 'error' ? 'alert' : 'status'} aria-live="polite">
+      {icon}
+      <span>{children}</span>
+    </section>
+  )
+}
+
+function ActivityFeed({ logs, fallbackPlan }: { logs: WorkoutLog[]; fallbackPlan: PlannedWorkout[] }) {
+  if (logs.length) {
+    return (
+      <div className="activity-feed">
+        {logs.slice(0, 5).map((log) => (
+          <article className="activity-item" key={log.id ?? `${log.workout_date}-${log.duration_min}`}>
+            <div className="activity-avatar">跑</div>
+            <div>
+              <strong>{log.workout_date}</strong>
+              <p>{log.duration_min} 分鐘 / RPE {log.rpe} / Zone 2 {log.zone2_min} 分鐘</p>
+              <span>疲勞 {log.fatigue}，疼痛 {log.pain}{log.notes ? `，${log.notes}` : ''}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="activity-feed">
+      {fallbackPlan.map((workout) => (
+        <article className="activity-item planned" key={workout.id}>
+          <div className="activity-avatar">W{workout.week_number}</div>
+          <div>
+            <strong>{workout.title}</strong>
+            <p>{dayLabels[workout.day_label]} / {workout.duration_min} 分鐘 / {workoutTypeLabels[workout.workout_type]}</p>
+            <span>{workout.intensity_target}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="empty-state" role="status">
+      <strong>{title}</strong>
+      <span>{text}</span>
     </div>
   )
 }
@@ -637,6 +807,21 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
       <strong>{value}</strong>
     </div>
   )
+}
+
+function statusLabel(status: DataStatus) {
+  switch (status) {
+    case 'ready':
+      return '已連線'
+    case 'schema-missing':
+      return '缺少資料表'
+    case 'auth-or-rls':
+      return '需檢查權限'
+    case 'unknown-error':
+      return '讀取異常'
+    default:
+      return '等待讀取'
+  }
 }
 
 function downloadBlob(blob: Blob, filename: string) {
