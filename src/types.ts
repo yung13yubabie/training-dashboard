@@ -31,8 +31,24 @@ export type WorkoutLog = {
   completed: boolean
   duration_min: number
   distance_km: number | null
+  calories: number | null
+  avg_pace: string | null
+  best_pace: string | null
   avg_hr: number | null
   max_hr: number | null
+  avg_power_w: number | null
+  power_weight_ratio: number | null
+  avg_cadence_spm: number | null
+  max_cadence_spm: number | null
+  avg_stride_m: number | null
+  max_stride_m: number | null
+  avg_vertical_oscillation_cm: number | null
+  max_vertical_oscillation_cm: number | null
+  avg_vertical_ratio_percent: number | null
+  avg_ground_contact_ms: number | null
+  min_ground_contact_ms: number | null
+  aerobic_training_effect: number | null
+  anaerobic_training_effect: number | null
   rpe: number
   fatigue: number
   pain: number

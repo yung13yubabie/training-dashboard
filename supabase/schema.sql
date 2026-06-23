@@ -38,8 +38,24 @@ create table if not exists public.workout_logs (
   completed boolean not null default true,
   duration_min integer not null check (duration_min >= 0),
   distance_km numeric(5,2) check (distance_km >= 0),
+  calories integer check (calories >= 0),
+  avg_pace text,
+  best_pace text,
   avg_hr integer check (avg_hr between 30 and 240),
   max_hr integer check (max_hr between 30 and 240),
+  avg_power_w integer check (avg_power_w >= 0),
+  power_weight_ratio numeric(4,2) check (power_weight_ratio >= 0),
+  avg_cadence_spm integer check (avg_cadence_spm between 80 and 260),
+  max_cadence_spm integer check (max_cadence_spm between 80 and 300),
+  avg_stride_m numeric(4,2) check (avg_stride_m >= 0),
+  max_stride_m numeric(4,2) check (max_stride_m >= 0),
+  avg_vertical_oscillation_cm numeric(4,1) check (avg_vertical_oscillation_cm >= 0),
+  max_vertical_oscillation_cm numeric(4,1) check (max_vertical_oscillation_cm >= 0),
+  avg_vertical_ratio_percent numeric(4,1) check (avg_vertical_ratio_percent >= 0),
+  avg_ground_contact_ms integer check (avg_ground_contact_ms >= 0),
+  min_ground_contact_ms integer check (min_ground_contact_ms >= 0),
+  aerobic_training_effect numeric(3,1) check (aerobic_training_effect >= 0),
+  anaerobic_training_effect numeric(3,1) check (anaerobic_training_effect >= 0),
   rpe integer not null check (rpe between 1 and 10),
   fatigue integer not null check (fatigue between 1 and 10),
   pain integer not null check (pain between 0 and 10),
@@ -55,6 +71,39 @@ create table if not exists public.workout_logs (
   gpx_file text,
   notes text,
   created_at timestamptz not null default now()
+);
+
+alter table public.workout_logs add column if not exists calories integer check (calories >= 0);
+alter table public.workout_logs add column if not exists avg_pace text;
+alter table public.workout_logs add column if not exists best_pace text;
+alter table public.workout_logs add column if not exists avg_power_w integer check (avg_power_w >= 0);
+alter table public.workout_logs add column if not exists power_weight_ratio numeric(4,2) check (power_weight_ratio >= 0);
+alter table public.workout_logs add column if not exists avg_cadence_spm integer check (avg_cadence_spm between 80 and 260);
+alter table public.workout_logs add column if not exists max_cadence_spm integer check (max_cadence_spm between 80 and 300);
+alter table public.workout_logs add column if not exists avg_stride_m numeric(4,2) check (avg_stride_m >= 0);
+alter table public.workout_logs add column if not exists max_stride_m numeric(4,2) check (max_stride_m >= 0);
+alter table public.workout_logs add column if not exists avg_vertical_oscillation_cm numeric(4,1) check (avg_vertical_oscillation_cm >= 0);
+alter table public.workout_logs add column if not exists max_vertical_oscillation_cm numeric(4,1) check (max_vertical_oscillation_cm >= 0);
+alter table public.workout_logs add column if not exists avg_vertical_ratio_percent numeric(4,1) check (avg_vertical_ratio_percent >= 0);
+alter table public.workout_logs add column if not exists avg_ground_contact_ms integer check (avg_ground_contact_ms >= 0);
+alter table public.workout_logs add column if not exists min_ground_contact_ms integer check (min_ground_contact_ms >= 0);
+alter table public.workout_logs add column if not exists aerobic_training_effect numeric(3,1) check (aerobic_training_effect >= 0);
+alter table public.workout_logs add column if not exists anaerobic_training_effect numeric(3,1) check (anaerobic_training_effect >= 0);
+
+with ranked_logs as (
+  select
+    id,
+    row_number() over (
+      partition by user_id, workout_date
+      order by created_at desc, id desc
+    ) as row_number
+  from public.workout_logs
+)
+delete from public.workout_logs
+where id in (
+  select id
+  from ranked_logs
+  where row_number > 1
 );
 
 create table if not exists public.workout_segments (
@@ -93,6 +142,7 @@ create index if not exists planned_workouts_user_week_idx on public.planned_work
 create index if not exists planned_workouts_plan_version_id_idx on public.planned_workouts(plan_version_id);
 create index if not exists workout_logs_user_date_idx on public.workout_logs(user_id, workout_date desc);
 create index if not exists workout_logs_planned_workout_id_idx on public.workout_logs(planned_workout_id);
+create unique index if not exists workout_logs_user_date_unique_idx on public.workout_logs(user_id, workout_date);
 create index if not exists workout_segments_log_idx on public.workout_segments(workout_log_id, segment_index);
 create index if not exists workout_segments_user_idx on public.workout_segments(user_id);
 create index if not exists trail_routes_user_area_idx on public.trail_routes(user_id, area);

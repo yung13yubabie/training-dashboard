@@ -7,6 +7,7 @@
 - Seed the initial 12-week plan after first login.
 - Verify live Supabase login, plan read/write, and workout log submission.
 - Verify workout segment insert/read after running the latest schema.
+- Verify the one-log-per-day update path against live Supabase.
 
 ## DOING
 
@@ -38,3 +39,5 @@
 - Verified the redesigned local UI at 320, 768, 1024, and 1440 px with Chrome headless.
 - Added collapsible recent activity and 12-week plan rows with in-place workout logging.
 - Added `workout_segments` schema support for optional split/group data.
+- Changed workout saving to one log per day, with repeated saves updating the same daily record.
+- Added dynamic segment add/remove controls and extended overall Amazfit metrics.

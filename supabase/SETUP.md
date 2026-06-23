@@ -41,6 +41,14 @@ Get-Content C:\Users\LIN\training-dashboard\supabase\schema.sql -Raw | Set-Clipb
 
 `workout_segments` 用來保存每次運動的分段 / 分組資料，例如距離、配速、本段用時、心率、步頻、步幅與消耗。
 
+`workout_logs` 現在限制同一個使用者同一天只能保留一筆訓練。重跑 `schema.sql` 時會先刪除同日重複舊資料，只保留最新一筆，然後建立唯一索引：
+
+```sql
+workout_logs_user_date_unique_idx
+```
+
+整體資料支援 Amazfit / Zepp 常見總欄位：消耗、平均/最佳配速、功率、功率體重比、平均/最高步頻、平均/最高步幅、垂直擺動、垂直比率、地面接觸時間、有氧/無氧訓練效果。
+
 ## 3. 設定 Auth Redirect
 
 在 Supabase Auth URL settings 加入：

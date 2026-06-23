@@ -483,7 +483,14 @@ select:focus {
 }
 
 .segment-head,
-.segment-row,
+.segment-row {
+  display: grid;
+  grid-template-columns: 2.5rem repeat(7, minmax(5.5rem, 1fr)) minmax(4.5rem, 0.6fr);
+  gap: 0.35rem;
+  min-width: 840px;
+  align-items: center;
+}
+
 .saved-segment {
   display: grid;
   grid-template-columns: 2.5rem repeat(7, minmax(5.5rem, 1fr));
@@ -513,6 +520,15 @@ select:focus {
 .saved-segment {
   padding: 0.45rem 0;
   border-bottom: 1px solid var(--border);
+}
+
+.mini-button {
+  min-height: 2.35rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.segment-add {
+  width: fit-content;
 }
 
 .zone-line {

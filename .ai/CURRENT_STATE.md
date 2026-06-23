@@ -6,7 +6,7 @@ The product direction is:
 
 - GitHub Pages hosts the frontend.
 - Supabase Auth provides Magic Link login.
-- Supabase Postgres stores planned workouts, completed workout logs, workout segment rows, route options, and plan versions.
+- Supabase Postgres stores planned workouts, completed daily workout logs, workout segment rows, route options, and plan versions.
 - The training plan is produced by the assistant and seeded into the app.
 - The user fills daily workout feedback online.
 - Weekly lightweight audits and 4-week formal adjustments are performed when the user asks the assistant to review the data.
@@ -22,6 +22,7 @@ Known training assumptions:
 - Training goal: mixed VO2max improvement and long-run endurance.
 - Intensity system: mixed pace, heart rate, RPE, duration, and elevation.
 - Weekend trail runs can use Taipei/Taoyuan public-transit-accessible routes.
+- Workout logging is one entry per user per date. Saving the same date again updates the existing daily log instead of creating a duplicate.
 
 Known deployment target:
 

@@ -2,7 +2,7 @@
 
 ## This Round
 
-Investigated the login-time Supabase failure, rebuilt the UI in a Strava-inspired activity-dashboard style, added collapsible workout logging, and added structured segment data support.
+Investigated the login-time Supabase failure, rebuilt the UI in a Strava-inspired activity-dashboard style, added collapsible workout logging, added structured segment data support, and changed workout logs to one entry per day.
 
 ## Root Cause Found
 
@@ -38,6 +38,10 @@ This means the REST API cannot find those tables in the schema cache. The most l
 - Recent activity and 12-week plan rows are now collapsible.
 - Workout logging now happens inside a planned workout row.
 - Added optional segment rows for Amazfit-style distance, pace, duration, heart rate, cadence, stride, and calories.
+- Saving the same date now updates the existing daily workout log instead of inserting another row.
+- `supabase/schema.sql` removes duplicate same-day logs before creating the `workout_logs_user_date_unique_idx` unique index.
+- Added dynamic segment add/remove controls.
+- Added overall Amazfit metrics for calories, pace, power, cadence, stride, vertical oscillation, vertical ratio, ground contact time, and training effect.
 - Rewrote `supabase/SETUP.md` in clean Traditional Chinese with the exact SQL Editor workflow.
 
 ## Verified This Round
@@ -48,6 +52,7 @@ This means the REST API cannot find those tables in the schema cache. The most l
 - `GITHUB_PAGES=true npm run build` uses the Pages base path.
 - Local Chrome headless opens the first 12-week plan row at 320, 390, 768, and 1440 px.
 - Local Chrome headless confirms the in-row log form has total fields and segment fields.
+- Local Chrome headless confirms segment add/remove works at 320, 390, 768, and 1440 px.
 - Local Chrome headless shows no document/body horizontal overflow at those widths.
 
 ## Still Need Verification
@@ -57,6 +62,7 @@ This means the REST API cannot find those tables in the schema cache. The most l
 - "寫入 Supabase" must be tested after login.
 - A workout log insert/select round trip must be tested after seeding.
 - A workout segment insert/select round trip must be tested after the latest schema is applied.
+- Same-day overwrite behavior must be tested against live Supabase after running the latest schema.
 - GitHub Pages deployment for this round must complete after pushing.
 
 ## Next Steps

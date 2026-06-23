@@ -32,7 +32,6 @@ import type { PlannedWorkout, WorkoutLog, WorkoutSegment } from './types'
 
 const planSeed = buildTrainingPlan()
 const todayIso = new Date().toISOString().slice(0, 10)
-const segmentRows = [1, 2, 3, 4, 5]
 
 type Notice = { kind: 'ok' | 'warn' | 'error'; text: string } | null
 type DataStatus = 'idle' | 'ready' | 'schema-missing' | 'auth-or-rls' | 'unknown-error'
@@ -48,6 +47,17 @@ type Diagnostic = {
   ok: boolean
   code?: string
   message?: string
+}
+type SegmentDraft = {
+  key: string
+  segment_index: number
+  distance_km: string
+  pace: string
+  duration_text: string
+  avg_hr: string
+  cadence_spm: string
+  stride_m: string
+  calories: string
 }
 
 const dayLabels: Record<string, string> = {
@@ -101,16 +111,32 @@ const emptyLog = (plannedWorkoutId: string | null): WorkoutLog => ({
   completed: true,
   duration_min: 45,
   distance_km: null,
+  calories: null,
+  avg_pace: null,
+  best_pace: null,
   avg_hr: null,
   max_hr: null,
+  avg_power_w: null,
+  power_weight_ratio: null,
+  avg_cadence_spm: null,
+  max_cadence_spm: null,
+  avg_stride_m: null,
+  max_stride_m: null,
+  avg_vertical_oscillation_cm: null,
+  max_vertical_oscillation_cm: null,
+  avg_vertical_ratio_percent: null,
+  avg_ground_contact_ms: null,
+  min_ground_contact_ms: null,
+  aerobic_training_effect: null,
+  anaerobic_training_effect: null,
   rpe: 4,
   fatigue: 3,
   pain: 0,
   sleep_hours: null,
   resting_hr: null,
-  zone1_min: 5,
-  zone2_min: 35,
-  zone3_min: 5,
+  zone1_min: 0,
+  zone2_min: 0,
+  zone3_min: 0,
   zone4_min: 0,
   zone5_min: 0,
   elevation_gain_m: null,
@@ -130,6 +156,32 @@ const toNumber = (value: FormDataEntryValue | null, fallback: number) => {
   return number ?? fallback
 }
 
+const valueOrEmpty = (value: number | string | null | undefined) => (value === null || value === undefined ? '' : String(value))
+
+const blankSegmentDraft = (segmentIndex: number): SegmentDraft => ({
+  key: crypto.randomUUID(),
+  segment_index: segmentIndex,
+  distance_km: '',
+  pace: '',
+  duration_text: '',
+  avg_hr: '',
+  cadence_spm: '',
+  stride_m: '',
+  calories: '',
+})
+
+const segmentToDraft = (segment: WorkoutSegment, index: number): SegmentDraft => ({
+  key: segment.id ?? crypto.randomUUID(),
+  segment_index: index + 1,
+  distance_km: valueOrEmpty(segment.distance_km),
+  pace: segment.pace ?? '',
+  duration_text: segment.duration_text ?? '',
+  avg_hr: valueOrEmpty(segment.avg_hr),
+  cadence_spm: valueOrEmpty(segment.cadence_spm),
+  stride_m: valueOrEmpty(segment.stride_m),
+  calories: valueOrEmpty(segment.calories),
+})
+
 const sortPlan = (workouts: PlannedWorkout[]) =>
   [...workouts].sort(
     (a, b) =>
@@ -142,11 +194,15 @@ const buildLoadMessage = (errors: SupabaseErrorLike[]) => {
     return '偵測到資料庫讀取失敗。若代碼是 PGRST205，請把 supabase/schema.sql 的完整內容貼到 Supabase SQL Editor 執行，再按重新整理。'
   }
 
+  if (errors.some((error) => error.code === '23505')) {
+    return '同一天已經有一筆紀錄。系統已改成一天一筆，請重新整理後再更新該日資料。'
+  }
+
   if (errors.some((error) => error.code === '42501' || error.message?.toLowerCase().includes('permission'))) {
     return '資料庫權限被拒。請確認 RLS policy 已建立，且目前是透過 Magic Link 登入。'
   }
 
-  return '資料讀取失敗。請確認 Supabase schema、RLS policy 與 Auth redirect 設定。'
+  return '資料讀取或儲存失敗。請確認 Supabase schema、RLS policy 與 Auth redirect 設定。'
 }
 
 const getDataStatus = (errors: SupabaseErrorLike[]): DataStatus => {
@@ -168,6 +224,7 @@ function App() {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [segments, setSegments] = useState<WorkoutSegment[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [savingTargetId, setSavingTargetId] = useState<string | null>(null)
 
   const activePlan = plannedWorkouts.length ? plannedWorkouts : planSeed
   const setupBlocked = !isSupabaseConfigured
@@ -180,6 +237,14 @@ function App() {
       const items = grouped.get(log.planned_workout_id) ?? []
       items.push(log)
       grouped.set(log.planned_workout_id, items)
+    }
+    return grouped
+  }, [logs])
+
+  const logsByDate = useMemo(() => {
+    const grouped = new Map<string, WorkoutLog>()
+    for (const log of logs) {
+      if (!grouped.has(log.workout_date)) grouped.set(log.workout_date, log)
     }
     return grouped
   }, [logs])
@@ -247,7 +312,7 @@ function App() {
         .select('*')
         .order('week_number', { ascending: true })
         .order('day_label', { ascending: true }),
-      supabase.from('workout_logs').select('*').order('workout_date', { ascending: false }),
+      supabase.from('workout_logs').select('*').order('workout_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.from('workout_segments').select('*').order('segment_index', { ascending: true }),
     ])
 
@@ -367,23 +432,50 @@ function App() {
     setIsLoading(false)
   }
 
-  const submitLog = async (event: React.FormEvent<HTMLFormElement>, workout: PlannedWorkout | null) => {
+  const submitLog = async (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    visibleExistingLog: WorkoutLog | null,
+  ) => {
     event.preventDefault()
     if (!supabase || !session) return
 
     const form = new FormData(event.currentTarget)
+    const workoutDate = String(form.get('workout_date') ?? todayIso)
+    const existingLogForDate =
+      visibleExistingLog?.workout_date === workoutDate ? visibleExistingLog : logsByDate.get(workoutDate) ?? null
+    const targetId = existingLogForDate?.id ?? workoutDate
+    if (savingTargetId === targetId) return
+    setSavingTargetId(targetId)
+
     const persistedWorkoutId =
       workout && plannedWorkouts.some((planned) => planned.id === workout.id) ? workout.id : null
     const log: WorkoutLog = {
       ...emptyLog(persistedWorkoutId),
       user_id: session.user.id,
       planned_workout_id: persistedWorkoutId,
-      workout_date: String(form.get('workout_date') ?? todayIso),
+      workout_date: workoutDate,
       completed: form.get('completed') === 'on',
       duration_min: toNumber(form.get('duration_min'), 0),
       distance_km: toNumberOrNull(form.get('distance_km')),
+      calories: toNumberOrNull(form.get('calories')),
+      avg_pace: String(form.get('avg_pace') || '') || null,
+      best_pace: String(form.get('best_pace') || '') || null,
       avg_hr: toNumberOrNull(form.get('avg_hr')),
       max_hr: toNumberOrNull(form.get('max_hr')),
+      avg_power_w: toNumberOrNull(form.get('avg_power_w')),
+      power_weight_ratio: toNumberOrNull(form.get('power_weight_ratio')),
+      avg_cadence_spm: toNumberOrNull(form.get('avg_cadence_spm')),
+      max_cadence_spm: toNumberOrNull(form.get('max_cadence_spm')),
+      avg_stride_m: toNumberOrNull(form.get('avg_stride_m')),
+      max_stride_m: toNumberOrNull(form.get('max_stride_m')),
+      avg_vertical_oscillation_cm: toNumberOrNull(form.get('avg_vertical_oscillation_cm')),
+      max_vertical_oscillation_cm: toNumberOrNull(form.get('max_vertical_oscillation_cm')),
+      avg_vertical_ratio_percent: toNumberOrNull(form.get('avg_vertical_ratio_percent')),
+      avg_ground_contact_ms: toNumberOrNull(form.get('avg_ground_contact_ms')),
+      min_ground_contact_ms: toNumberOrNull(form.get('min_ground_contact_ms')),
+      aerobic_training_effect: toNumberOrNull(form.get('aerobic_training_effect')),
+      anaerobic_training_effect: toNumberOrNull(form.get('anaerobic_training_effect')),
       rpe: toNumber(form.get('rpe'), 4),
       fatigue: toNumber(form.get('fatigue'), 3),
       pain: toNumber(form.get('pain'), 0),
@@ -400,31 +492,55 @@ function App() {
       notes: String(form.get('notes') || '') || null,
     }
 
-    const { data: insertedLog, error } = await supabase
-      .from('workout_logs')
-      .insert(log)
-      .select('id')
-      .single()
+    const savedLogResult = existingLogForDate?.id
+      ? await supabase
+          .from('workout_logs')
+          .update(log)
+          .eq('id', existingLogForDate.id)
+          .eq('user_id', session.user.id)
+          .select('id')
+          .single()
+      : await supabase
+          .from('workout_logs')
+          .insert(log)
+          .select('id')
+          .single()
 
-    if (error) {
-      console.error('Save workout log failed', error)
-      setNotice({ kind: 'error', text: buildLoadMessage([error]) })
+    if (savedLogResult.error) {
+      console.error('Save workout log failed', savedLogResult.error)
+      setNotice({ kind: 'error', text: buildLoadMessage([savedLogResult.error]) })
+      setSavingTargetId(null)
       return
     }
 
-    const segmentPayload = buildSegmentsFromForm(form, session.user.id, insertedLog.id)
+    const savedLogId = savedLogResult.data.id
+    const { error: deleteSegmentsError } = await supabase
+      .from('workout_segments')
+      .delete()
+      .eq('workout_log_id', savedLogId)
+      .eq('user_id', session.user.id)
+
+    if (deleteSegmentsError) {
+      console.error('Delete workout segments failed', deleteSegmentsError)
+      setNotice({ kind: 'error', text: buildLoadMessage([deleteSegmentsError]) })
+      setSavingTargetId(null)
+      return
+    }
+
+    const segmentPayload = buildSegmentsFromForm(form, session.user.id, savedLogId)
     if (segmentPayload.length) {
       const { error: segmentError } = await supabase.from('workout_segments').insert(segmentPayload)
       if (segmentError) {
         console.error('Save workout segments failed', segmentError)
         setNotice({ kind: 'error', text: buildLoadMessage([segmentError]) })
+        setSavingTargetId(null)
         return
       }
     }
 
-    setNotice({ kind: 'ok', text: '訓練資料已儲存。之後可在近期活動或課表展開回看。' })
-    event.currentTarget.reset()
+    setNotice({ kind: 'ok', text: existingLogForDate?.id ? '已更新這一天的訓練。' : '已新增這一天的訓練。' })
     await refreshData()
+    setSavingTargetId(null)
   }
 
   const exportJson = () => {
@@ -437,11 +553,14 @@ function App() {
 
   const exportCsv = () => {
     const rows = [
-      ['日期', '總時間', '總距離', '平均心率', '最高心率', 'RPE', '疲勞', '疼痛', 'Zone 2', '備註'],
+      ['日期', '總時間', '總距離', '消耗', '平均配速', '最佳配速', '平均心率', '最高心率', 'RPE', '疲勞', '疼痛', 'Zone 2', '備註'],
       ...logs.map((log) => [
         log.workout_date,
         log.duration_min,
         log.distance_km ?? '',
+        log.calories ?? '',
+        log.avg_pace ?? '',
+        log.best_pace ?? '',
         log.avg_hr ?? '',
         log.max_hr ?? '',
         log.rpe,
@@ -479,7 +598,7 @@ function App() {
           <div className="hero-copy">
             <span className="eyebrow">12 週跑步訓練</span>
             <h1>跑步訓練儀表板</h1>
-            <p>以 VO2max、神經刺激、Zone 2 基礎與週末越野耐力為主軸。每次訓練可展開填寫，隔天也能回看歷史資料。</p>
+            <p>一天只能保留一筆訓練。再次儲存同一天會更新原本資料，不會新增重複紀錄。</p>
             <div className="hero-actions">
               <button type="button" onClick={exportJson}>
                 <Download size={16} /> 匯出 JSON
@@ -595,7 +714,7 @@ function App() {
           <article className="panel" id="feed">
             <div className="section-heading">
               <span><Activity size={18} /> 近期活動</span>
-              <span className="muted">{logs.length ? `共 ${logs.length} 筆，可展開回看` : '尚無活動紀錄'}</span>
+              <span className="muted">{logs.length ? `共 ${logs.length} 天，可展開回看` : '尚無活動紀錄'}</span>
             </div>
             <ActivityFeed logs={logs} segmentsByLog={segmentsByLog} />
           </article>
@@ -639,7 +758,7 @@ function App() {
         <section className="panel" id="plan">
           <div className="section-heading">
             <span><CalendarDays size={18} /> 12 週課表</span>
-            <span className="muted">點開任一課表即可填寫當次運動數據。</span>
+            <span className="muted">點開任一課表即可填寫當天運動數據；同一天再次儲存會覆蓋。</span>
           </div>
           <div className="plan-list">
             {activePlan.map((workout) => (
@@ -647,8 +766,10 @@ function App() {
                 key={workout.id}
                 workout={workout}
                 logs={logsByWorkout.get(workout.id) ?? []}
+                todayLog={logsByDate.get(todayIso) ?? null}
                 segmentsByLog={segmentsByLog}
                 canSubmit={Boolean(session && supabase && dataStatus !== 'schema-missing')}
+                isSaving={savingTargetId !== null}
                 onSubmit={submitLog}
               />
             ))}
@@ -690,17 +811,27 @@ function App() {
 function WorkoutAccordion({
   workout,
   logs,
+  todayLog,
   segmentsByLog,
   canSubmit,
+  isSaving,
   onSubmit,
 }: {
   workout: PlannedWorkout
   logs: WorkoutLog[]
+  todayLog: WorkoutLog | null
   segmentsByLog: Map<string, WorkoutSegment[]>
   canSubmit: boolean
-  onSubmit: (event: React.FormEvent<HTMLFormElement>, workout: PlannedWorkout | null) => Promise<void>
+  isSaving: boolean
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    existingLog: WorkoutLog | null,
+  ) => Promise<void>
 }) {
-  const latestLog = logs[0]
+  const latestLog = logs[0] ?? null
+  const formLog = latestLog ?? todayLog
+  const formSegments = formLog?.id ? segmentsByLog.get(formLog.id) ?? [] : []
 
   return (
     <details className="workout-accordion">
@@ -725,7 +856,15 @@ function WorkoutAccordion({
             ))}
           </div>
         )}
-        <WorkoutLogForm workout={workout} canSubmit={canSubmit} onSubmit={onSubmit} />
+        <WorkoutLogForm
+          key={`${workout.id}-${formLog?.id ?? 'new'}`}
+          workout={workout}
+          existingLog={formLog}
+          existingSegments={formSegments}
+          canSubmit={canSubmit}
+          isSaving={isSaving}
+          onSubmit={onSubmit}
+        />
       </div>
     </details>
   )
@@ -733,40 +872,87 @@ function WorkoutAccordion({
 
 function WorkoutLogForm({
   workout,
+  existingLog,
+  existingSegments,
   canSubmit,
+  isSaving,
   onSubmit,
 }: {
   workout: PlannedWorkout
+  existingLog: WorkoutLog | null
+  existingSegments: WorkoutSegment[]
   canSubmit: boolean
-  onSubmit: (event: React.FormEvent<HTMLFormElement>, workout: PlannedWorkout | null) => Promise<void>
+  isSaving: boolean
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    existingLog: WorkoutLog | null,
+  ) => Promise<void>
 }) {
+  const [segmentDrafts, setSegmentDrafts] = useState<SegmentDraft[]>(() =>
+    existingSegments.length ? existingSegments.map(segmentToDraft) : [blankSegmentDraft(1)],
+  )
+
+  const updateSegment = (key: string, field: keyof SegmentDraft, value: string) => {
+    setSegmentDrafts((drafts) => drafts.map((draft) => (draft.key === key ? { ...draft, [field]: value } : draft)))
+  }
+
+  const addSegment = () => {
+    setSegmentDrafts((drafts) => [...drafts, blankSegmentDraft(drafts.length + 1)])
+  }
+
+  const removeSegment = (key: string) => {
+    setSegmentDrafts((drafts) =>
+      drafts.length === 1
+        ? [blankSegmentDraft(1)]
+        : drafts.filter((draft) => draft.key !== key).map((draft, index) => ({ ...draft, segment_index: index + 1 })),
+    )
+  }
+
   return (
-    <form className="log-form" onSubmit={(event) => onSubmit(event, workout)}>
+    <form className="log-form" onSubmit={(event) => onSubmit(event, workout, existingLog)}>
       <fieldset>
         <legend>總體資料</legend>
-        <Field label="日期" name="workout_date" type="date" defaultValue={todayIso} />
-        <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(workout.duration_min ?? 45)} min="0" />
-        <Field label="總距離（km）" name="distance_km" type="number" step="0.01" min="0" />
-        <Field label="平均心率" name="avg_hr" type="number" />
-        <Field label="最高心率" name="max_hr" type="number" />
-        <Field label="RPE" name="rpe" type="number" min="1" max="10" defaultValue="4" />
-        <Field label="疲勞 1-10" name="fatigue" type="number" min="1" max="10" defaultValue="3" />
-        <Field label="疼痛 0-10" name="pain" type="number" min="0" max="10" defaultValue="0" />
-        <Field label="睡眠時數" name="sleep_hours" type="number" step="0.1" min="0" max="24" />
-        <Field label="靜息心率" name="resting_hr" type="number" />
-        <Field label="Z1 分鐘" name="zone1_min" type="number" defaultValue="0" min="0" />
-        <Field label="Z2 分鐘" name="zone2_min" type="number" defaultValue="0" min="0" />
-        <Field label="Z3 分鐘" name="zone3_min" type="number" defaultValue="0" min="0" />
-        <Field label="Z4 分鐘" name="zone4_min" type="number" defaultValue="0" min="0" />
-        <Field label="Z5 分鐘" name="zone5_min" type="number" defaultValue="0" min="0" />
-        <Field label="總爬升（m）" name="elevation_gain_m" type="number" min="0" />
+        <Field label="日期（一天只能一筆）" name="workout_date" type="date" defaultValue={existingLog?.workout_date ?? todayIso} />
+        <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout.duration_min ?? 45)} min="0" />
+        <Field label="總距離（km）" name="distance_km" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.distance_km)} />
+        <Field label="消耗（kcal）" name="calories" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.calories)} />
+        <Field label="平均配速" name="avg_pace" placeholder="5:20" defaultValue={existingLog?.avg_pace ?? ''} />
+        <Field label="最佳配速" name="best_pace" placeholder="4:45" defaultValue={existingLog?.best_pace ?? ''} />
+        <Field label="平均心率" name="avg_hr" type="number" defaultValue={valueOrEmpty(existingLog?.avg_hr)} />
+        <Field label="最高心率" name="max_hr" type="number" defaultValue={valueOrEmpty(existingLog?.max_hr)} />
+        <Field label="平均功率 W" name="avg_power_w" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.avg_power_w)} />
+        <Field label="功率體重比" name="power_weight_ratio" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.power_weight_ratio)} />
+        <Field label="平均步頻" name="avg_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.avg_cadence_spm)} />
+        <Field label="最高步頻" name="max_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.max_cadence_spm)} />
+        <Field label="平均步幅" name="avg_stride_m" type="number" step="0.01" defaultValue={valueOrEmpty(existingLog?.avg_stride_m)} />
+        <Field label="最高步幅" name="max_stride_m" type="number" step="0.01" defaultValue={valueOrEmpty(existingLog?.max_stride_m)} />
+        <Field label="垂直擺動平均" name="avg_vertical_oscillation_cm" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.avg_vertical_oscillation_cm)} />
+        <Field label="垂直擺動最大" name="max_vertical_oscillation_cm" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.max_vertical_oscillation_cm)} />
+        <Field label="垂直比率平均" name="avg_vertical_ratio_percent" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.avg_vertical_ratio_percent)} />
+        <Field label="觸地時間平均 ms" name="avg_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.avg_ground_contact_ms)} />
+        <Field label="觸地時間最短 ms" name="min_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.min_ground_contact_ms)} />
+        <Field label="有氧訓練效果" name="aerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.aerobic_training_effect)} />
+        <Field label="無氧訓練效果" name="anaerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.anaerobic_training_effect)} />
+        <Field label="RPE" name="rpe" type="number" min="1" max="10" defaultValue={String(existingLog?.rpe ?? 4)} />
+        <Field label="疲勞 1-10" name="fatigue" type="number" min="1" max="10" defaultValue={String(existingLog?.fatigue ?? 3)} />
+        <Field label="疼痛 0-10" name="pain" type="number" min="0" max="10" defaultValue={String(existingLog?.pain ?? 0)} />
+        <Field label="睡眠時數" name="sleep_hours" type="number" step="0.1" min="0" max="24" defaultValue={valueOrEmpty(existingLog?.sleep_hours)} />
+        <Field label="靜息心率" name="resting_hr" type="number" defaultValue={valueOrEmpty(existingLog?.resting_hr)} />
+        <Field label="Z1 分鐘" name="zone1_min" type="number" defaultValue={String(existingLog?.zone1_min ?? 0)} min="0" />
+        <Field label="Z2 分鐘" name="zone2_min" type="number" defaultValue={String(existingLog?.zone2_min ?? 0)} min="0" />
+        <Field label="Z3 分鐘" name="zone3_min" type="number" defaultValue={String(existingLog?.zone3_min ?? 0)} min="0" />
+        <Field label="Z4 分鐘" name="zone4_min" type="number" defaultValue={String(existingLog?.zone4_min ?? 0)} min="0" />
+        <Field label="Z5 分鐘" name="zone5_min" type="number" defaultValue={String(existingLog?.zone5_min ?? 0)} min="0" />
+        <Field label="總爬升（m）" name="elevation_gain_m" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.elevation_gain_m)} />
       </fieldset>
 
       <fieldset>
-        <legend>分段 / 分組資料（選填）</legend>
-        <p className="form-hint">Amazfit 分段常見欄位：距離、配速、本段用時、心率、步頻、步幅、消耗。沒有就留空。</p>
+        <legend>分段 / 分組資料（可新增移除）</legend>
+        <p className="form-hint">分段只填該段有的資料；整體跑姿與功率指標請填在上方總體資料。</p>
         <div className="segment-table">
           <div className="segment-head">
+            <span>操作</span>
             <span>段</span>
             <span>距離 km</span>
             <span>配速</span>
@@ -776,36 +962,43 @@ function WorkoutLogForm({
             <span>步幅</span>
             <span>消耗</span>
           </div>
-          {segmentRows.map((index) => (
-            <div className="segment-row" key={index}>
-              <span>{index}</span>
-              <input aria-label={`第 ${index} 段距離`} name={`seg_${index}_distance`} type="number" step="0.01" min="0" />
-              <input aria-label={`第 ${index} 段配速`} name={`seg_${index}_pace`} placeholder="5:20" />
-              <input aria-label={`第 ${index} 段用時`} name={`seg_${index}_duration`} placeholder="10:00" />
-              <input aria-label={`第 ${index} 段心率`} name={`seg_${index}_hr`} type="number" />
-              <input aria-label={`第 ${index} 段步頻`} name={`seg_${index}_cadence`} type="number" />
-              <input aria-label={`第 ${index} 段步幅`} name={`seg_${index}_stride`} type="number" step="0.01" />
-              <input aria-label={`第 ${index} 段消耗`} name={`seg_${index}_calories`} type="number" />
+          {segmentDrafts.map((segment) => (
+            <div className="segment-row" key={segment.key}>
+              <button type="button" className="ghost mini-button" onClick={() => removeSegment(segment.key)}>
+                移除
+              </button>
+              <span>{segment.segment_index}</span>
+              <input type="hidden" name="segment_index" value={segment.segment_index} />
+              <input aria-label={`第 ${segment.segment_index} 段距離`} name={`seg_${segment.segment_index}_distance`} type="number" step="0.01" min="0" value={segment.distance_km} onChange={(event) => updateSegment(segment.key, 'distance_km', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段配速`} name={`seg_${segment.segment_index}_pace`} placeholder="5:20" value={segment.pace} onChange={(event) => updateSegment(segment.key, 'pace', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段用時`} name={`seg_${segment.segment_index}_duration`} placeholder="10:00" value={segment.duration_text} onChange={(event) => updateSegment(segment.key, 'duration_text', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段心率`} name={`seg_${segment.segment_index}_hr`} type="number" value={segment.avg_hr} onChange={(event) => updateSegment(segment.key, 'avg_hr', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段步頻`} name={`seg_${segment.segment_index}_cadence`} type="number" value={segment.cadence_spm} onChange={(event) => updateSegment(segment.key, 'cadence_spm', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段步幅`} name={`seg_${segment.segment_index}_stride`} type="number" step="0.01" value={segment.stride_m} onChange={(event) => updateSegment(segment.key, 'stride_m', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段消耗`} name={`seg_${segment.segment_index}_calories`} type="number" value={segment.calories} onChange={(event) => updateSegment(segment.key, 'calories', event.target.value)} />
             </div>
           ))}
         </div>
+        <button type="button" className="secondary segment-add" onClick={addSegment}>
+          新增分段
+        </button>
       </fieldset>
 
       <fieldset>
         <legend>補充</legend>
-        <Field label="活動連結" name="activity_link" type="url" />
-        <Field label="GPX 檔名 / 連結" name="gpx_file" type="text" />
+        <Field label="活動連結" name="activity_link" type="url" defaultValue={existingLog?.activity_link ?? ''} />
+        <Field label="GPX 檔名 / 連結" name="gpx_file" type="text" defaultValue={existingLog?.gpx_file ?? ''} />
         <label className="wide">
           備註
-          <textarea name="notes" rows={3} placeholder="例如：分組感受、路況、腿部狀態、是否需要調整下週課表。" />
+          <textarea name="notes" rows={3} defaultValue={existingLog?.notes ?? ''} placeholder="例如：分組感受、路況、腿部狀態、是否需要調整下週課表。" />
         </label>
         <label className="checkbox-field">
-          <input type="checkbox" name="completed" defaultChecked /> 已完成
+          <input type="checkbox" name="completed" defaultChecked={existingLog?.completed ?? true} /> 已完成
         </label>
       </fieldset>
 
-      <button type="submit" disabled={!canSubmit}>
-        儲存這次訓練
+      <button type="submit" disabled={!canSubmit || isSaving}>
+        {isSaving ? '儲存中...' : existingLog ? '更新這一天' : '儲存這一天'}
       </button>
     </form>
   )
@@ -847,8 +1040,24 @@ function LogDetail({ log, segments }: { log: WorkoutLog; segments: WorkoutSegmen
       <div className="metric-strip compact">
         <Metric label="距離" value={`${log.distance_km ?? '-'} km`} />
         <Metric label="時間" value={`${log.duration_min} 分`} />
+        <Metric label="消耗" value={`${log.calories ?? '-'} kcal`} />
+        <Metric label="平均配速" value={log.avg_pace ?? '-'} />
+        <Metric label="最佳配速" value={log.best_pace ?? '-'} />
         <Metric label="平均心率" value={log.avg_hr ?? '-'} />
         <Metric label="最高心率" value={log.max_hr ?? '-'} />
+        <Metric label="平均功率" value={log.avg_power_w ?? '-'} />
+        <Metric label="功率體重比" value={log.power_weight_ratio ?? '-'} />
+        <Metric label="平均步頻" value={log.avg_cadence_spm ?? '-'} />
+        <Metric label="最高步頻" value={log.max_cadence_spm ?? '-'} />
+        <Metric label="平均步幅" value={log.avg_stride_m ?? '-'} />
+        <Metric label="最高步幅" value={log.max_stride_m ?? '-'} />
+        <Metric label="垂直擺動平均" value={log.avg_vertical_oscillation_cm ?? '-'} />
+        <Metric label="垂直擺動最大" value={log.max_vertical_oscillation_cm ?? '-'} />
+        <Metric label="垂直比率平均" value={log.avg_vertical_ratio_percent ?? '-'} />
+        <Metric label="觸地時間平均" value={log.avg_ground_contact_ms ?? '-'} />
+        <Metric label="觸地時間最短" value={log.min_ground_contact_ms ?? '-'} />
+        <Metric label="有氧效果" value={log.aerobic_training_effect ?? '-'} />
+        <Metric label="無氧效果" value={log.anaerobic_training_effect ?? '-'} />
         <Metric label="RPE" value={log.rpe} />
         <Metric label="疲勞" value={log.fatigue} />
         <Metric label="疼痛" value={log.pain} />
@@ -880,7 +1089,10 @@ function LogDetail({ log, segments }: { log: WorkoutLog; segments: WorkoutSegmen
 }
 
 function buildSegmentsFromForm(form: FormData, userId: string, workoutLogId: string): Omit<WorkoutSegment, 'id' | 'created_at'>[] {
-  return segmentRows.flatMap((index) => {
+  return form.getAll('segment_index').flatMap((rawIndex) => {
+    const index = Number(rawIndex)
+    if (!Number.isFinite(index)) return []
+
     const distance = toNumberOrNull(form.get(`seg_${index}_distance`))
     const pace = String(form.get(`seg_${index}_pace`) || '').trim()
     const duration = String(form.get(`seg_${index}_duration`) || '').trim()
