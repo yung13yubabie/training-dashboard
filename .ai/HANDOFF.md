@@ -43,6 +43,8 @@ This means the REST API cannot find those tables in the schema cache. The most l
 - Bundle text scan shows no old mojibake marker codepoints.
 - Local Chrome headless renders the redesigned UI at 320, 768, 1024, and 1440 px with no console errors.
 - Local Chrome headless shows no document/body horizontal overflow at those widths.
+- GitHub Actions run `28024252118` deployed this round successfully.
+- Public Pages URL returns HTTP 200 and renders Traditional Chinese at 320, 390, 768, and 1440 px with no console errors or horizontal overflow.
 
 ## Still Need Verification
 
@@ -50,12 +52,10 @@ This means the REST API cannot find those tables in the schema cache. The most l
 - Magic Link redirect must be tested again after the schema exists.
 - "寫入 Supabase" must be tested after login.
 - A workout log insert/select round trip must be tested after seeding.
-- GitHub Pages deployment for this round must complete after pushing.
 
 ## Next Steps
 
-1. Commit and push this round.
-2. Watch GitHub Actions deploy.
-3. Verify the public Pages URL in Chrome.
-4. In Supabase SQL Editor, run `supabase/schema.sql`.
-5. Re-login and test "寫入 Supabase".
+1. In Supabase SQL Editor, run `supabase/schema.sql`.
+2. Wait 10-30 seconds for PostgREST schema cache reload.
+3. Re-login and test "寫入 Supabase".
+4. Submit one workout log and confirm it appears after refresh.
