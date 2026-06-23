@@ -11,7 +11,7 @@ The product direction is:
 - The user fills daily workout feedback online.
 - Weekly lightweight audits and 4-week formal adjustments are performed when the user asks the assistant to review the data.
 
-The current project is an initial implementation. The visible app interface and seed training/route content are Traditional Chinese. Supabase project credentials exist locally only if the user has filled `.env.local`; live login and database writes still require Supabase Auth/project verification before they can be treated as confirmed.
+The current project is an initial implementation. The visible app interface and seed training/route content are Traditional Chinese. The app is deployed to GitHub Pages. Supabase URL and anon key are configured as GitHub Secrets for production builds, but live Magic Link and database writes still require Supabase Auth redirect verification before they can be treated as confirmed.
 
 The parent `C:\Users\LIN\package.json` contains forwarding scripts so `npm run dev` from `C:\Users\LIN` delegates to `training-dashboard`.
 

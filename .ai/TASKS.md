@@ -10,8 +10,6 @@
 
 ## DOING
 
-- Deploy the Traditional Chinese interface to GitHub Pages for `yung13yubabie/training-dashboard`.
-
 ## BLOCKED
 
 - Live Supabase verification is blocked until Supabase project credentials and Auth redirect settings exist.
@@ -30,3 +28,6 @@
 - Converted visible app UI, training plan seed content, route seed content, README, and Supabase setup notes to Traditional Chinese.
 - Fixed Supabase seed/log happy-path UUID mismatch by not inserting local seed IDs into UUID columns.
 - Rechecked responsive widths at 390, 768, 1024, and 1366 px with system Chrome.
+- Published repository to `https://github.com/yung13yubabie/training-dashboard`.
+- Configured GitHub Pages deployment through GitHub Actions.
+- Verified the public Pages URL loads at `https://yung13yubabie.github.io/training-dashboard/`.
