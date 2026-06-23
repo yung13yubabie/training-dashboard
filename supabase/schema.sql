@@ -57,6 +57,21 @@ create table if not exists public.workout_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.workout_segments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  workout_log_id uuid not null references public.workout_logs(id) on delete cascade,
+  segment_index integer not null check (segment_index between 1 and 99),
+  distance_km numeric(5,2) check (distance_km >= 0),
+  pace text,
+  duration_text text,
+  avg_hr integer check (avg_hr between 30 and 240),
+  cadence_spm integer check (cadence_spm between 80 and 260),
+  stride_m numeric(4,2) check (stride_m >= 0),
+  calories integer check (calories >= 0),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.trail_routes (
   id text primary key,
   user_id uuid references auth.users(id) on delete cascade,
@@ -78,11 +93,14 @@ create index if not exists planned_workouts_user_week_idx on public.planned_work
 create index if not exists planned_workouts_plan_version_id_idx on public.planned_workouts(plan_version_id);
 create index if not exists workout_logs_user_date_idx on public.workout_logs(user_id, workout_date desc);
 create index if not exists workout_logs_planned_workout_id_idx on public.workout_logs(planned_workout_id);
+create index if not exists workout_segments_log_idx on public.workout_segments(workout_log_id, segment_index);
+create index if not exists workout_segments_user_idx on public.workout_segments(user_id);
 create index if not exists trail_routes_user_area_idx on public.trail_routes(user_id, area);
 
 alter table public.plan_versions enable row level security;
 alter table public.planned_workouts enable row level security;
 alter table public.workout_logs enable row level security;
+alter table public.workout_segments enable row level security;
 alter table public.trail_routes enable row level security;
 
 drop policy if exists "Users read own plan versions" on public.plan_versions;
@@ -91,6 +109,8 @@ drop policy if exists "Users read own planned workouts" on public.planned_workou
 drop policy if exists "Users write own planned workouts" on public.planned_workouts;
 drop policy if exists "Users read own workout logs" on public.workout_logs;
 drop policy if exists "Users write own workout logs" on public.workout_logs;
+drop policy if exists "Users read own workout segments" on public.workout_segments;
+drop policy if exists "Users write own workout segments" on public.workout_segments;
 drop policy if exists "Users read own or public trail routes" on public.trail_routes;
 drop policy if exists "Users write own trail routes" on public.trail_routes;
 
@@ -123,6 +143,17 @@ using ((select auth.uid()) = user_id);
 
 create policy "Users write own workout logs"
 on public.workout_logs for all
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+create policy "Users read own workout segments"
+on public.workout_segments for select
+to authenticated
+using ((select auth.uid()) = user_id);
+
+create policy "Users write own workout segments"
+on public.workout_segments for all
 to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);

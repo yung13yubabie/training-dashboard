@@ -6,6 +6,7 @@
 - Configure Supabase Magic Link redirect URLs for local development and GitHub Pages.
 - Seed the initial 12-week plan after first login.
 - Verify live Supabase login, plan read/write, and workout log submission.
+- Verify workout segment insert/read after running the latest schema.
 
 ## DOING
 
@@ -35,3 +36,5 @@
 - Made `supabase/schema.sql` safer to rerun by dropping existing policies before recreating them and notifying PostgREST to reload schema.
 - Reworked the UI toward a Strava-inspired activity dashboard style.
 - Verified the redesigned local UI at 320, 768, 1024, and 1440 px with Chrome headless.
+- Added collapsible recent activity and 12-week plan rows with in-place workout logging.
+- Added `workout_segments` schema support for optional split/group data.

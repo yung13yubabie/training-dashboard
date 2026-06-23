@@ -6,7 +6,7 @@ The product direction is:
 
 - GitHub Pages hosts the frontend.
 - Supabase Auth provides Magic Link login.
-- Supabase Postgres stores planned workouts, completed workout logs, route options, and plan versions.
+- Supabase Postgres stores planned workouts, completed workout logs, workout segment rows, route options, and plan versions.
 - The training plan is produced by the assistant and seeded into the app.
 - The user fills daily workout feedback online.
 - Weekly lightweight audits and 4-week formal adjustments are performed when the user asks the assistant to review the data.

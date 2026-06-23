@@ -50,6 +50,21 @@ export type WorkoutLog = {
   created_at?: string
 }
 
+export type WorkoutSegment = {
+  id?: string
+  user_id: string
+  workout_log_id: string
+  segment_index: number
+  distance_km: number | null
+  pace: string | null
+  duration_text: string | null
+  avg_hr: number | null
+  cadence_spm: number | null
+  stride_m: number | null
+  calories: number | null
+  created_at?: string
+}
+
 export type TrailRoute = {
   id: string
   name: string
