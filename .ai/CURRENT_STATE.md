@@ -25,6 +25,7 @@ Known training assumptions:
 - Intensity system: mixed pace, heart rate, RPE, duration, and elevation.
 - Weekend trail runs can use Taipei/Taoyuan public-transit-accessible routes.
 - Workout logging is one entry per user per date. Saving the same date again updates the existing daily log instead of creating a duplicate.
+- Importing the 12-week seed plan archives existing active plan versions and creates a new active plan version.
 - Weekday unavoidable missed quality sessions can be moved to Saturday or Sunday.
 - Weekend days may use two or three sessions, but only one quality session should be kept on the same day.
 - The 12-week seed plan includes adjustable fartlek sessions.

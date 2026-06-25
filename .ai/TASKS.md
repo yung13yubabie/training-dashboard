@@ -46,3 +46,4 @@
 - Relaxed database constraints for wearable metrics that can vary by device export.
 - Added weekend missed-session adjustment guidance and adjustable fartlek sessions.
 - Added an Email link generator for remote form access without exposing secrets.
+- Changed plan import to archive old active plan versions before creating a new active plan.

@@ -392,7 +392,8 @@ function App() {
     const [workoutsResult, logsResult, segmentsResult] = await Promise.all([
       supabase
         .from('planned_workouts')
-        .select('*')
+        .select('*, plan_versions!inner(status)')
+        .eq('plan_versions.status', 'active')
         .order('week_number', { ascending: true })
         .order('day_label', { ascending: true }),
       supabase.from('workout_logs').select('*').order('workout_date', { ascending: false }).order('created_at', { ascending: false }),
@@ -466,6 +467,19 @@ function App() {
     if (!supabase || !session) return
     setIsLoading(true)
     setNotice(null)
+
+    const { error: archiveError } = await supabase
+      .from('plan_versions')
+      .update({ status: 'archived' })
+      .eq('user_id', session.user.id)
+      .eq('status', 'active')
+
+    if (archiveError) {
+      console.error('Archive active plan failed', archiveError)
+      setNotice({ kind: 'error', text: buildLoadMessage([archiveError]) })
+      setIsLoading(false)
+      return
+    }
 
     const { data: version, error: versionError } = await supabase
       .from('plan_versions')

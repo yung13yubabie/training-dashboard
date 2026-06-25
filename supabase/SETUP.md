@@ -38,6 +38,7 @@ Get-Content C:\Users\LIN\training-dashboard\supabase\schema.sql -Raw | Set-Clipb
 - `workout_logs` 一位使用者一天只能保留一筆。
 - 同一天再次儲存應更新既有紀錄，不應新增重複資料。
 - `workout_segments` 用於選填分段 / 分組資料。
+- 重新匯入 12 週課表時，前端會把舊的 active plan version 標成 archived，再建立新的 active plan。
 - Amazfit / Zepp 的裝置數據欄位已放寬限制，避免真實裝置值被過窄的 check constraint 擋下。
 
 如果你遇到 `23514`、`22P02`、`PGRST204` 或 `PGRST205`，先重跑最新版 `schema.sql`，再重新登入測試。

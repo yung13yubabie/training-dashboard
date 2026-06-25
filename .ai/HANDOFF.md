@@ -35,6 +35,7 @@ The app now rounds integer-like fields before save and displays the actual Supab
 - Relaxed wearable metric constraints in `supabase/schema.sql`.
 - Added a missed-session adjustment panel: weekday unavoidable misses can move to Saturday/Sunday, and weekend two/three-session rules are shown.
 - Added adjustable fartlek workouts to the 12-week seed plan.
+- Changed plan import so it archives old active plan versions before creating a new active plan, and the app reads only active planned workouts.
 - Added an Email link generator. It opens the website remotely; true automatic sending still requires a backend email provider integration.
 
 ## Verified This Round
@@ -52,6 +53,7 @@ Browser automation was attempted but could not be completed in this environment:
 - User must rerun the latest `supabase/schema.sql` in the live Supabase SQL Editor.
 - Magic Link redirect must be tested again after the schema update.
 - The Supabase import/seed action must be tested after login.
+- Re-importing the plan should be tested to confirm old active plans are archived and the fartlek plan appears.
 - A workout log insert/select round trip must be tested after seeding.
 - A workout segment insert/select round trip must be tested after the latest schema is applied.
 - Same-day overwrite behavior must be tested against live Supabase after running the latest schema.
