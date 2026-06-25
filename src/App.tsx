@@ -105,6 +105,44 @@ const dataLabels: Record<string, string> = {
   workout_segments: '分段資料',
 }
 
+Object.assign(dayLabels, {
+  Tue: '週二',
+  Wed: '週三',
+  Thu: '週四',
+  Sat: '週六',
+  Sun: '週日',
+})
+
+Object.assign(workoutTypeLabels, {
+  calibration: '校準測試',
+  vo2max: 'VO2max',
+  threshold: '閾值',
+  fartlek: '法特萊克',
+  zone2: 'Zone 2',
+  neuromuscular: '神經刺激',
+  trail: '越野長跑',
+  recovery: '恢復',
+  rest: '休息',
+})
+
+Object.assign(priorityLabels, {
+  low: '低',
+  normal: '一般',
+  key: '關鍵',
+})
+
+Object.assign(difficultyLabels, {
+  easy: '簡單',
+  moderate: '中等',
+  hard: '困難',
+})
+
+Object.assign(dataLabels, {
+  planned_workouts: '計畫課表',
+  workout_logs: '訓練紀錄',
+  workout_segments: '分段資料',
+})
+
 const emptyLog = (plannedWorkoutId: string | null): WorkoutLog => ({
   planned_workout_id: plannedWorkoutId,
   workout_date: todayIso,
@@ -151,8 +189,13 @@ const toNumberOrNull = (value: FormDataEntryValue | null) => {
   return Number.isFinite(number) ? number : null
 }
 
-const toNumber = (value: FormDataEntryValue | null, fallback: number) => {
+const toIntegerOrNull = (value: FormDataEntryValue | null) => {
   const number = toNumberOrNull(value)
+  return number === null ? null : Math.round(number)
+}
+
+const toInteger = (value: FormDataEntryValue | null, fallback: number) => {
+  const number = toIntegerOrNull(value)
   return number ?? fallback
 }
 
@@ -214,6 +257,42 @@ const getDataStatus = (errors: SupabaseErrorLike[]): DataStatus => {
   return 'unknown-error'
 }
 
+const describeSupabaseError = (error: SupabaseErrorLike) =>
+  [
+    error.code ? `代碼 ${error.code}` : null,
+    error.message,
+    error.details ? `細節：${error.details}` : null,
+    error.hint ? `提示：${error.hint}` : null,
+  ]
+    .filter(Boolean)
+    .join(' / ')
+
+const buildSaveMessage = (stage: string, error: SupabaseErrorLike) => {
+  const detail = describeSupabaseError(error)
+
+  if (error.code === 'PGRST204' || error.code === 'PGRST205') {
+    return `${stage}失敗：Supabase schema 尚未更新或 schema cache 尚未重載。請執行最新版 supabase/schema.sql。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  if (error.code === '23505') {
+    return `${stage}失敗：同一天已存在一筆紀錄。請按重新整理後再更新該日資料。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  if (error.code === '23514') {
+    return `${stage}失敗：某個數值超出資料庫允許範圍。請先看下方錯誤細節；我已放寬裝置數據限制，需重跑最新版 schema.sql。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  if (error.code === '22P02') {
+    return `${stage}失敗：欄位格式不正確，常見原因是整數欄位填入小數或文字。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  if (error.code === '42501' || error.message?.toLowerCase().includes('permission')) {
+    return `${stage}失敗：資料庫權限被拒。請確認 RLS policy 已建立，且目前是透過 Magic Link 登入。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  return `${stage}失敗。${detail ? `錯誤：${detail}` : '請確認 Supabase schema、RLS policy 與 Auth redirect 設定。'}`
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [email, setEmail] = useState('')
@@ -225,6 +304,10 @@ function App() {
   const [segments, setSegments] = useState<WorkoutSegment[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [savingTargetId, setSavingTargetId] = useState<string | null>(null)
+  const [missedReason, setMissedReason] = useState('')
+  const [makeupDay, setMakeupDay] = useState<'Sat' | 'Sun'>('Sat')
+  const [weekendSessions, setWeekendSessions] = useState(2)
+  const [mailTo, setMailTo] = useState('')
 
   const activePlan = plannedWorkouts.length ? plannedWorkouts : planSeed
   const setupBlocked = !isSupabaseConfigured
@@ -456,37 +539,37 @@ function App() {
       planned_workout_id: persistedWorkoutId,
       workout_date: workoutDate,
       completed: form.get('completed') === 'on',
-      duration_min: toNumber(form.get('duration_min'), 0),
+      duration_min: toInteger(form.get('duration_min'), 0),
       distance_km: toNumberOrNull(form.get('distance_km')),
-      calories: toNumberOrNull(form.get('calories')),
+      calories: toIntegerOrNull(form.get('calories')),
       avg_pace: String(form.get('avg_pace') || '') || null,
       best_pace: String(form.get('best_pace') || '') || null,
-      avg_hr: toNumberOrNull(form.get('avg_hr')),
-      max_hr: toNumberOrNull(form.get('max_hr')),
-      avg_power_w: toNumberOrNull(form.get('avg_power_w')),
+      avg_hr: toIntegerOrNull(form.get('avg_hr')),
+      max_hr: toIntegerOrNull(form.get('max_hr')),
+      avg_power_w: toIntegerOrNull(form.get('avg_power_w')),
       power_weight_ratio: toNumberOrNull(form.get('power_weight_ratio')),
-      avg_cadence_spm: toNumberOrNull(form.get('avg_cadence_spm')),
-      max_cadence_spm: toNumberOrNull(form.get('max_cadence_spm')),
+      avg_cadence_spm: toIntegerOrNull(form.get('avg_cadence_spm')),
+      max_cadence_spm: toIntegerOrNull(form.get('max_cadence_spm')),
       avg_stride_m: toNumberOrNull(form.get('avg_stride_m')),
       max_stride_m: toNumberOrNull(form.get('max_stride_m')),
       avg_vertical_oscillation_cm: toNumberOrNull(form.get('avg_vertical_oscillation_cm')),
       max_vertical_oscillation_cm: toNumberOrNull(form.get('max_vertical_oscillation_cm')),
       avg_vertical_ratio_percent: toNumberOrNull(form.get('avg_vertical_ratio_percent')),
-      avg_ground_contact_ms: toNumberOrNull(form.get('avg_ground_contact_ms')),
-      min_ground_contact_ms: toNumberOrNull(form.get('min_ground_contact_ms')),
+      avg_ground_contact_ms: toIntegerOrNull(form.get('avg_ground_contact_ms')),
+      min_ground_contact_ms: toIntegerOrNull(form.get('min_ground_contact_ms')),
       aerobic_training_effect: toNumberOrNull(form.get('aerobic_training_effect')),
       anaerobic_training_effect: toNumberOrNull(form.get('anaerobic_training_effect')),
-      rpe: toNumber(form.get('rpe'), 4),
-      fatigue: toNumber(form.get('fatigue'), 3),
-      pain: toNumber(form.get('pain'), 0),
+      rpe: toInteger(form.get('rpe'), 4),
+      fatigue: toInteger(form.get('fatigue'), 3),
+      pain: toInteger(form.get('pain'), 0),
       sleep_hours: toNumberOrNull(form.get('sleep_hours')),
-      resting_hr: toNumberOrNull(form.get('resting_hr')),
-      zone1_min: toNumber(form.get('zone1_min'), 0),
-      zone2_min: toNumber(form.get('zone2_min'), 0),
-      zone3_min: toNumber(form.get('zone3_min'), 0),
-      zone4_min: toNumber(form.get('zone4_min'), 0),
-      zone5_min: toNumber(form.get('zone5_min'), 0),
-      elevation_gain_m: toNumberOrNull(form.get('elevation_gain_m')),
+      resting_hr: toIntegerOrNull(form.get('resting_hr')),
+      zone1_min: toInteger(form.get('zone1_min'), 0),
+      zone2_min: toInteger(form.get('zone2_min'), 0),
+      zone3_min: toInteger(form.get('zone3_min'), 0),
+      zone4_min: toInteger(form.get('zone4_min'), 0),
+      zone5_min: toInteger(form.get('zone5_min'), 0),
+      elevation_gain_m: toIntegerOrNull(form.get('elevation_gain_m')),
       activity_link: String(form.get('activity_link') || '') || null,
       gpx_file: String(form.get('gpx_file') || '') || null,
       notes: String(form.get('notes') || '') || null,
@@ -508,7 +591,7 @@ function App() {
 
     if (savedLogResult.error) {
       console.error('Save workout log failed', savedLogResult.error)
-      setNotice({ kind: 'error', text: buildLoadMessage([savedLogResult.error]) })
+      setNotice({ kind: 'error', text: buildSaveMessage('儲存訓練主紀錄', savedLogResult.error) })
       setSavingTargetId(null)
       return
     }
@@ -522,7 +605,7 @@ function App() {
 
     if (deleteSegmentsError) {
       console.error('Delete workout segments failed', deleteSegmentsError)
-      setNotice({ kind: 'error', text: buildLoadMessage([deleteSegmentsError]) })
+      setNotice({ kind: 'error', text: buildSaveMessage('更新分段前清除舊資料', deleteSegmentsError) })
       setSavingTargetId(null)
       return
     }
@@ -532,7 +615,7 @@ function App() {
       const { error: segmentError } = await supabase.from('workout_segments').insert(segmentPayload)
       if (segmentError) {
         console.error('Save workout segments failed', segmentError)
-        setNotice({ kind: 'error', text: buildLoadMessage([segmentError]) })
+        setNotice({ kind: 'error', text: buildSaveMessage('儲存分段資料', segmentError) })
         setSavingTargetId(null)
         return
       }
@@ -573,6 +656,11 @@ function App() {
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
     downloadBlob(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `training-logs-${todayIso}.csv`)
   }
+
+  const siteUrl = import.meta.env.VITE_SITE_URL ?? window.location.origin
+  const remoteMailHref = `mailto:${encodeURIComponent(mailTo)}?subject=${encodeURIComponent('跑步訓練資料填寫連結')}&body=${encodeURIComponent(
+    `請用 Magic Link 登入後填寫訓練資料：\n${siteUrl}\n\n規則：一天只能保留一筆訓練；同一天再次儲存會更新原資料。`,
+  )}`
 
   return (
     <div className="app-shell">
@@ -708,6 +796,65 @@ function App() {
               寫入 Supabase
             </button>
           </article>
+        </section>
+
+        <section className="panel adjustment-panel" id="adjustment">
+          <div className="section-heading">
+            <span><CalendarDays size={18} /> 課表調整機制</span>
+            <span className="muted">平日不可抗力可移到週末；週末允許二練或三練，但品質課只保留一個。</span>
+          </div>
+          <div className="adjustment-grid">
+            <label>
+              不可抗力原因
+              <input
+                value={missedReason}
+                onChange={(event) => setMissedReason(event.target.value)}
+                placeholder="加班、下雨、身體不適、交通延誤"
+              />
+            </label>
+            <label>
+              補課日
+              <select value={makeupDay} onChange={(event) => setMakeupDay(event.target.value as 'Sat' | 'Sun')}>
+                <option value="Sat">週六</option>
+                <option value="Sun">週日</option>
+              </select>
+            </label>
+            <label>
+              週末訓練次數
+              <select value={weekendSessions} onChange={(event) => setWeekendSessions(Number(event.target.value))}>
+                <option value={1}>一練：只保留最重要一課</option>
+                <option value={2}>二練：早品質、晚恢復</option>
+                <option value={3}>三練：早品質、中短恢復、晚活動度</option>
+              </select>
+            </label>
+            <div className="adjustment-advice">
+              <strong>建議</strong>
+              <p>
+                {missedReason ? `因「${missedReason}」漏課時，` : '漏課時，'}
+                把品質課移到{makeupDay === 'Sat' ? '週六早上' : '週日早上'}；
+                {weekendSessions >= 2 ? '第二練只做 Zone 1-2 或活動度，' : '當天只做一個重點，'}
+                {weekendSessions >= 3 ? '第三練限 20-30 分鐘恢復或伸展。' : '不要把兩個高強度課硬塞同一天。'}
+              </p>
+              <p>法特萊克可作為 VO2max 與閾值之間的調整課：狀態好做 1 分快 / 1 分慢 8-12 組；狀態差改 30 秒快 / 90 秒慢 6-8 組。</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel remote-panel">
+          <div className="section-heading">
+            <span><Mail size={18} /> 遠端填寫 / Email 連結</span>
+            <span className="muted">目前用 Email 開啟填寫連結；真正自動寄信需另外接 Supabase Edge Function 或 Email API。</span>
+          </div>
+          <div className="remote-grid">
+            <label>
+              收件 Email
+              <input type="email" value={mailTo} onChange={(event) => setMailTo(event.target.value)} placeholder="you@example.com" />
+            </label>
+            <a className={`button-link ${mailTo ? '' : 'disabled'}`} href={mailTo ? remoteMailHref : undefined}>
+              產生填寫 Email
+            </a>
+            <p>對方收到連結後，登入 Magic Link，在網站填寫後會直接回存 Supabase 表格。</p>
+          </div>
         </section>
 
         <section className="feed-grid">
@@ -1096,10 +1243,10 @@ function buildSegmentsFromForm(form: FormData, userId: string, workoutLogId: str
     const distance = toNumberOrNull(form.get(`seg_${index}_distance`))
     const pace = String(form.get(`seg_${index}_pace`) || '').trim()
     const duration = String(form.get(`seg_${index}_duration`) || '').trim()
-    const avgHr = toNumberOrNull(form.get(`seg_${index}_hr`))
-    const cadence = toNumberOrNull(form.get(`seg_${index}_cadence`))
+    const avgHr = toIntegerOrNull(form.get(`seg_${index}_hr`))
+    const cadence = toIntegerOrNull(form.get(`seg_${index}_cadence`))
     const stride = toNumberOrNull(form.get(`seg_${index}_stride`))
-    const calories = toNumberOrNull(form.get(`seg_${index}_calories`))
+    const calories = toIntegerOrNull(form.get(`seg_${index}_calories`))
 
     const hasAnyValue = [distance, pace, duration, avgHr, cadence, stride, calories].some(
       (value) => value !== null && value !== '',

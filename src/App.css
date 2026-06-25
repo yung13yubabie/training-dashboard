@@ -202,6 +202,61 @@
   gap: 1rem;
 }
 
+.adjustment-grid,
+.remote-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.adjustment-advice {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border-left: 3px solid var(--orange);
+  background: var(--surface-muted);
+}
+
+.adjustment-advice p,
+.remote-grid p {
+  margin: 0;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.button-link {
+  display: inline-flex;
+  min-height: 2.55rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--orange);
+  border-radius: 0.25rem;
+  padding: 0.625rem 0.875rem;
+  background: var(--orange);
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.button-link:hover,
+.button-link:focus-visible {
+  background: var(--orange-dark);
+  border-color: var(--orange-dark);
+}
+
+.button-link.disabled {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.remote-grid p {
+  grid-column: 1 / -1;
+}
+
 .panel,
 .status-card,
 .diagnostic-panel {
@@ -766,6 +821,8 @@ button:disabled {
   .metric-strip.compact,
   .mini-metrics,
   .dashboard-grid,
+  .adjustment-grid,
+  .remote-grid,
   .feed-grid,
   .route-grid {
     grid-template-columns: 1fr;

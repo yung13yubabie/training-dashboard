@@ -41,19 +41,19 @@ create table if not exists public.workout_logs (
   calories integer check (calories >= 0),
   avg_pace text,
   best_pace text,
-  avg_hr integer check (avg_hr between 30 and 240),
-  max_hr integer check (max_hr between 30 and 240),
+  avg_hr integer,
+  max_hr integer,
   avg_power_w integer check (avg_power_w >= 0),
   power_weight_ratio numeric(4,2) check (power_weight_ratio >= 0),
-  avg_cadence_spm integer check (avg_cadence_spm between 80 and 260),
-  max_cadence_spm integer check (max_cadence_spm between 80 and 300),
-  avg_stride_m numeric(4,2) check (avg_stride_m >= 0),
-  max_stride_m numeric(4,2) check (max_stride_m >= 0),
-  avg_vertical_oscillation_cm numeric(4,1) check (avg_vertical_oscillation_cm >= 0),
-  max_vertical_oscillation_cm numeric(4,1) check (max_vertical_oscillation_cm >= 0),
-  avg_vertical_ratio_percent numeric(4,1) check (avg_vertical_ratio_percent >= 0),
-  avg_ground_contact_ms integer check (avg_ground_contact_ms >= 0),
-  min_ground_contact_ms integer check (min_ground_contact_ms >= 0),
+  avg_cadence_spm integer,
+  max_cadence_spm integer,
+  avg_stride_m numeric(4,2),
+  max_stride_m numeric(4,2),
+  avg_vertical_oscillation_cm numeric(4,1),
+  max_vertical_oscillation_cm numeric(4,1),
+  avg_vertical_ratio_percent numeric(4,1),
+  avg_ground_contact_ms integer,
+  min_ground_contact_ms integer,
   aerobic_training_effect numeric(3,1) check (aerobic_training_effect >= 0),
   anaerobic_training_effect numeric(3,1) check (anaerobic_training_effect >= 0),
   rpe integer not null check (rpe between 1 and 10),
@@ -78,17 +78,32 @@ alter table public.workout_logs add column if not exists avg_pace text;
 alter table public.workout_logs add column if not exists best_pace text;
 alter table public.workout_logs add column if not exists avg_power_w integer check (avg_power_w >= 0);
 alter table public.workout_logs add column if not exists power_weight_ratio numeric(4,2) check (power_weight_ratio >= 0);
-alter table public.workout_logs add column if not exists avg_cadence_spm integer check (avg_cadence_spm between 80 and 260);
-alter table public.workout_logs add column if not exists max_cadence_spm integer check (max_cadence_spm between 80 and 300);
-alter table public.workout_logs add column if not exists avg_stride_m numeric(4,2) check (avg_stride_m >= 0);
-alter table public.workout_logs add column if not exists max_stride_m numeric(4,2) check (max_stride_m >= 0);
-alter table public.workout_logs add column if not exists avg_vertical_oscillation_cm numeric(4,1) check (avg_vertical_oscillation_cm >= 0);
-alter table public.workout_logs add column if not exists max_vertical_oscillation_cm numeric(4,1) check (max_vertical_oscillation_cm >= 0);
-alter table public.workout_logs add column if not exists avg_vertical_ratio_percent numeric(4,1) check (avg_vertical_ratio_percent >= 0);
-alter table public.workout_logs add column if not exists avg_ground_contact_ms integer check (avg_ground_contact_ms >= 0);
-alter table public.workout_logs add column if not exists min_ground_contact_ms integer check (min_ground_contact_ms >= 0);
+alter table public.workout_logs add column if not exists avg_cadence_spm integer;
+alter table public.workout_logs add column if not exists max_cadence_spm integer;
+alter table public.workout_logs add column if not exists avg_stride_m numeric(4,2);
+alter table public.workout_logs add column if not exists max_stride_m numeric(4,2);
+alter table public.workout_logs add column if not exists avg_vertical_oscillation_cm numeric(4,1);
+alter table public.workout_logs add column if not exists max_vertical_oscillation_cm numeric(4,1);
+alter table public.workout_logs add column if not exists avg_vertical_ratio_percent numeric(4,1);
+alter table public.workout_logs add column if not exists avg_ground_contact_ms integer;
+alter table public.workout_logs add column if not exists min_ground_contact_ms integer;
 alter table public.workout_logs add column if not exists aerobic_training_effect numeric(3,1) check (aerobic_training_effect >= 0);
 alter table public.workout_logs add column if not exists anaerobic_training_effect numeric(3,1) check (anaerobic_training_effect >= 0);
+
+alter table public.workout_logs drop constraint if exists workout_logs_avg_hr_check;
+alter table public.workout_logs drop constraint if exists workout_logs_max_hr_check;
+alter table public.workout_logs drop constraint if exists workout_logs_avg_cadence_spm_check;
+alter table public.workout_logs drop constraint if exists workout_logs_max_cadence_spm_check;
+alter table public.workout_logs drop constraint if exists workout_logs_avg_stride_m_check;
+alter table public.workout_logs drop constraint if exists workout_logs_max_stride_m_check;
+alter table public.workout_logs drop constraint if exists workout_logs_avg_vertical_oscillation_cm_check;
+alter table public.workout_logs drop constraint if exists workout_logs_max_vertical_oscillation_cm_check;
+alter table public.workout_logs drop constraint if exists workout_logs_avg_vertical_ratio_percent_check;
+alter table public.workout_logs drop constraint if exists workout_logs_avg_ground_contact_ms_check;
+alter table public.workout_logs drop constraint if exists workout_logs_min_ground_contact_ms_check;
+alter table if exists public.workout_segments drop constraint if exists workout_segments_avg_hr_check;
+alter table if exists public.workout_segments drop constraint if exists workout_segments_cadence_spm_check;
+alter table if exists public.workout_segments drop constraint if exists workout_segments_stride_m_check;
 
 with ranked_logs as (
   select
@@ -114,9 +129,9 @@ create table if not exists public.workout_segments (
   distance_km numeric(5,2) check (distance_km >= 0),
   pace text,
   duration_text text,
-  avg_hr integer check (avg_hr between 30 and 240),
-  cadence_spm integer check (cadence_spm between 80 and 260),
-  stride_m numeric(4,2) check (stride_m >= 0),
+  avg_hr integer,
+  cadence_spm integer,
+  stride_m numeric(4,2),
   calories integer check (calories >= 0),
   created_at timestamptz not null default now()
 );

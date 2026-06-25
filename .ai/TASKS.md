@@ -2,18 +2,19 @@
 
 ## TODO
 
-- Run `supabase/schema.sql` in the Supabase SQL editor.
+- Rerun the latest `supabase/schema.sql` in the Supabase SQL editor to relax wearable metric constraints.
 - Configure Supabase Magic Link redirect URLs for local development and GitHub Pages.
 - Seed the initial 12-week plan after first login.
-- Verify live Supabase login, plan read/write, and workout log submission.
-- Verify workout segment insert/read after running the latest schema.
+- Verify live authenticated Supabase workout log submission after rerunning the latest schema.
+- Verify workout segment insert/read after rerunning the latest schema.
 - Verify the one-log-per-day update path against live Supabase.
+- If true automatic email sending is needed, design a backend flow with Supabase Edge Functions plus an email provider; do not put provider secrets in the frontend.
 
 ## DOING
 
 ## BLOCKED
 
-- Live Supabase verification is blocked until Supabase project credentials and Auth redirect settings exist.
+- Live authenticated write verification is blocked until the user reruns the latest schema and tests through their Magic Link session.
 
 ## DONE
 
@@ -41,3 +42,7 @@
 - Added `workout_segments` schema support for optional split/group data.
 - Changed workout saving to one log per day, with repeated saves updating the same daily record.
 - Added dynamic segment add/remove controls and extended overall Amazfit metrics.
+- Added detailed Supabase save error messages with code/details/hint instead of a generic failure notice.
+- Relaxed database constraints for wearable metrics that can vary by device export.
+- Added weekend missed-session adjustment guidance and adjustable fartlek sessions.
+- Added an Email link generator for remote form access without exposing secrets.

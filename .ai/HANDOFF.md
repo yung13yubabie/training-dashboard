@@ -2,19 +2,19 @@
 
 ## This Round
 
-Investigated the login-time Supabase failure, rebuilt the UI in a Strava-inspired activity-dashboard style, added collapsible workout logging, added structured segment data support, and changed workout logs to one entry per day.
+Investigated a save failure when entering yesterday's workout, improved Supabase save diagnostics, relaxed wearable metric constraints, added weekend missed-session adjustment guidance, added fartlek sessions to the seed plan, and added an Email link generator for remote form access.
 
 ## Root Cause Found
 
-The live Supabase project returns `PGRST205` for all expected tables:
+Live Supabase anonymous read probes now return status 200 for `workout_logs`, `workout_segments`, and `planned_workouts`, including the newer columns. This means the current failure is no longer best explained as missing tables or columns.
 
-- `public.plan_versions`
-- `public.planned_workouts`
-- `public.workout_logs`
-- `public.workout_segments`
-- `public.trail_routes`
+The likely failure layer is authenticated insert/update validation:
 
-This means the REST API cannot find those tables in the schema cache. The most likely cause is that `supabase/schema.sql` has not been successfully executed in the live Supabase project, or the schema cache has not reloaded after SQL execution.
+- DB check constraints can reject real wearable values with `23514`.
+- Integer columns can reject decimal/text values with `22P02`.
+- Same-day uniqueness can return `23505` if the UI cannot first read the existing daily row.
+
+The app now rounds integer-like fields before save and displays the actual Supabase code/message/details/hint. The schema also drops overly strict wearable metric checks and should be rerun.
 
 ## Added or Modified
 
@@ -30,45 +30,38 @@ This means the REST API cannot find those tables in the schema cache. The most l
 
 ## Important Fixes
 
-- UI now shows actionable Supabase diagnostics instead of only a generic reload/login message.
-- `PGRST205` maps to a clear "run schema.sql" instruction.
-- `supabase/schema.sql` drops existing policies before recreating them, so it is safer to rerun.
-- `supabase/schema.sql` ends with `notify pgrst, 'reload schema';`.
-- Rebuilt the UI with Strava-inspired patterns: orange primary actions, activity feed, metric strips, compact white cards, and denser dashboard scanning.
-- Recent activity and 12-week plan rows are now collapsible.
-- Workout logging now happens inside a planned workout row.
-- Added optional segment rows for Amazfit-style distance, pace, duration, heart rate, cadence, stride, and calories.
-- Saving the same date now updates the existing daily workout log instead of inserting another row.
-- `supabase/schema.sql` removes duplicate same-day logs before creating the `workout_logs_user_date_unique_idx` unique index.
-- Added dynamic segment add/remove controls.
-- Added overall Amazfit metrics for calories, pace, power, cadence, stride, vertical oscillation, vertical ratio, ground contact time, and training effect.
-- Rewrote `supabase/SETUP.md` in clean Traditional Chinese with the exact SQL Editor workflow.
+- Added specific save error messages for `PGRST204/PGRST205`, `23505`, `23514`, `22P02`, and RLS permission failures.
+- Changed integer-like form parsing to round decimals before sending to integer columns.
+- Relaxed wearable metric constraints in `supabase/schema.sql`.
+- Added a missed-session adjustment panel: weekday unavoidable misses can move to Saturday/Sunday, and weekend two/three-session rules are shown.
+- Added adjustable fartlek workouts to the 12-week seed plan.
+- Added an Email link generator. It opens the website remotely; true automatic sending still requires a backend email provider integration.
 
 ## Verified This Round
 
-- Direct Supabase anon query reproduces `PGRST205` for the expected tables.
+- Direct Supabase anonymous read probes return status 200 for the expected workout tables/columns.
 - `npm run lint` passes.
 - `npm run build` passes.
 - `GITHUB_PAGES=true npm run build` uses the Pages base path.
-- Local Chrome headless opens the first 12-week plan row at 320, 390, 768, and 1440 px.
-- Local Chrome headless confirms the in-row log form has total fields and segment fields.
-- Local Chrome headless confirms segment add/remove works at 320, 390, 768, and 1440 px.
-- Local Chrome headless shows no document/body horizontal overflow at those widths.
+- Build assets contain the new adjustment and fartlek strings.
+
+Browser automation was attempted but could not be completed in this environment: transient Playwright execution could not resolve the package, and headless Chrome returned empty DOM output. Do not treat rendered RWD/browser QA as completed for this round.
 
 ## Still Need Verification
 
-- User must run `supabase/schema.sql` in the live Supabase SQL Editor.
-- Magic Link redirect must be tested again after the schema exists.
-- "寫入 Supabase" must be tested after login.
+- User must rerun the latest `supabase/schema.sql` in the live Supabase SQL Editor.
+- Magic Link redirect must be tested again after the schema update.
+- The Supabase import/seed action must be tested after login.
 - A workout log insert/select round trip must be tested after seeding.
 - A workout segment insert/select round trip must be tested after the latest schema is applied.
 - Same-day overwrite behavior must be tested against live Supabase after running the latest schema.
+- Rendered RWD/browser QA should be rerun with a working browser automation tool.
 - GitHub Pages deployment for this round must complete after pushing.
 
 ## Next Steps
 
-1. In Supabase SQL Editor, run `supabase/schema.sql`.
+1. In Supabase SQL Editor, rerun the latest `supabase/schema.sql`.
 2. Wait 10-30 seconds for PostgREST schema cache reload.
-3. Re-login and test "寫入 Supabase".
-4. Submit one workout log with at least one segment row and confirm it appears after refresh.
-5. Push this round and verify GitHub Pages.
+3. Re-login and test seeding/saving.
+4. Submit one workout log for yesterday with at least one segment row and confirm it appears after refresh.
+5. If saving still fails, copy the exact Supabase code/message/details now shown in the red notice.

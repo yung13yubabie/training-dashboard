@@ -2,6 +2,7 @@ export type WorkoutType =
   | 'calibration'
   | 'vo2max'
   | 'threshold'
+  | 'fartlek'
   | 'zone2'
   | 'neuromuscular'
   | 'trail'
