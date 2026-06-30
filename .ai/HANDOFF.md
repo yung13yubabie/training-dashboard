@@ -18,12 +18,15 @@ Follow-up update: added editable planned-workout content inside each workout acc
 
 Follow-up update: added `npm run test:smoke` as a repeatable local UI smoke gate. It starts Vite, opens local Chrome/Edge through Playwright Core, and checks desktop plus mobile render behavior for the folded weekly plan, planned-workout edit controls, move controls, remote fill controls, and date query parameter.
 
+Follow-up update: wired lint and `npm run test:smoke` into the GitHub Pages deploy workflow before build/upload. `scripts/smoke.mjs` now also knows common Linux and macOS Chrome/Chromium paths for CI and non-Windows machines.
+
 ## Added or Modified
 
 - `src/App.tsx`
 - `src/App.css`
 - `scripts/smoke.mjs`
 - `package.json`
+- `.github/workflows/deploy.yml`
 - `src/types.ts`
 - `supabase/functions/send-fill-link/index.ts`
 - `.ai/CURRENT_STATE.md`
@@ -40,6 +43,7 @@ Follow-up update: added `npm run test:smoke` as a repeatable local UI smoke gate
 - Render smoke check after email-function UI update passed: no console errors, remote panel shows automatic send/fallback options, date query parameter is applied, and only one current week is open.
 - Render smoke check after planned-workout edit update passed at 1440x1000 and 390x844: 12 week sections exist, only one week is open, the planned-workout edit panel opens, edit inputs render, move controls still render, remote fill controls still render, date query parameter is applied, and no console errors are emitted.
 - `npm run test:smoke` passes and reports 12 week sections, one open week, 60 workout accordions, planned-workout edit inputs, remote fill fallback buttons, and date query application at 1440x1000 and 390x844.
+- GitHub Pages deploy workflow now includes lint and UI smoke test steps before `npm run build`.
 
 Build produced non-blocking bundle-size/plugin timing warnings only.
 

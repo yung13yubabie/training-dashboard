@@ -62,3 +62,4 @@
 - Added `send-fill-link` Supabase Edge Function and frontend automatic email send action with Email draft/copy-link fallbacks.
 - Added planned-workout editing for type, priority, title, prescription, intensity target, duration, distance, elevation, and route.
 - Added `npm run test:smoke` for repeatable local UI verification of weekly accordion, planned-workout edit, move controls, remote fill controls, and date query behavior.
+- Added the local UI smoke gate to the GitHub Pages deploy workflow before build/upload.
