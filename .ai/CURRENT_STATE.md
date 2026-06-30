@@ -31,6 +31,7 @@ Known training assumptions:
 - The 12-week seed plan includes adjustable fartlek sessions.
 - The plan UI groups workouts by week. The current training week opens by default, previous/next weeks stay collapsed but can be expanded.
 - Planned workouts can be moved to another week/day from the UI. Remote Supabase plans are updated in `planned_workouts`; local seed plans use a temporary in-browser preview until seeded.
+- Planned workouts can be edited from the UI for type, priority, title, prescription, intensity target, duration, distance, elevation, and route. Remote Supabase plans are updated in `planned_workouts`; local seed plans use a temporary in-browser preview until seeded.
 - Remote fill links can include a target date query parameter so the recipient lands on the intended log date after Magic Link login.
 - Remote fill links support automatic email sending through the `send-fill-link` Supabase Edge Function when deployed with `RESEND_API_KEY` and `RESEND_FROM_EMAIL` secrets. The frontend still keeps Email draft and copy-link fallbacks.
 
@@ -44,4 +45,5 @@ Unknown or pending:
 - Authenticated live workout save result after rerunning the latest schema.
 - Current live fitness baseline beyond older 5K and 10K results.
 - Live verification for the latest plan move, activity delete, and date-specific remote fill flows.
+- Live verification for the latest planned-workout edit flow.
 - Live deployment and verification for the `send-fill-link` Edge Function and Resend delivery.

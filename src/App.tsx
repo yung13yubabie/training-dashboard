@@ -72,9 +72,31 @@ type PlanMoveDraft = {
   day_label: string
   reason: string
 }
-type PlanOverride = {
-  week_number: number
-  day_label: string
+type PlanEditDraft = {
+  workout_type: PlannedWorkout['workout_type']
+  priority: PlannedWorkout['priority']
+  title: string
+  prescription: string
+  intensity_target: string
+  duration_min: string
+  distance_km: string
+  elevation_gain_m: string
+  route_id: string
+}
+type PlanOverride = Partial<Pick<
+  PlannedWorkout,
+  | 'week_number'
+  | 'day_label'
+  | 'workout_type'
+  | 'priority'
+  | 'title'
+  | 'prescription'
+  | 'intensity_target'
+  | 'duration_min'
+  | 'distance_km'
+  | 'elevation_gain_m'
+  | 'route_id'
+>> & {
   reason?: string
 }
 
@@ -230,9 +252,10 @@ const applyPlanOverrides = (plan: PlannedWorkout[], overrides: Record<string, Pl
       if (!override) return workout
       return {
         ...workout,
-        week_number: override.week_number,
-        day_label: override.day_label,
-        prescription: override.reason ? `${workout.prescription}\n調整原因：${override.reason}` : workout.prescription,
+        ...override,
+        prescription: override.reason
+          ? `${override.prescription ?? workout.prescription}\n調整原因：${override.reason}`
+          : override.prescription ?? workout.prescription,
       }
     }),
   )
@@ -330,6 +353,47 @@ const segmentToDraft = (segment: WorkoutSegment, index: number): SegmentDraft =>
   stride_m: valueOrEmpty(segment.stride_m),
   calories: valueOrEmpty(segment.calories),
 })
+
+const workoutToEditDraft = (workout: PlannedWorkout): PlanEditDraft => ({
+  workout_type: workout.workout_type,
+  priority: workout.priority,
+  title: workout.title,
+  prescription: workout.prescription,
+  intensity_target: workout.intensity_target,
+  duration_min: valueOrEmpty(workout.duration_min),
+  distance_km: valueOrEmpty(workout.distance_km),
+  elevation_gain_m: valueOrEmpty(workout.elevation_gain_m),
+  route_id: workout.route_id ?? '',
+})
+
+const buildPlanEditPayload = (draft: PlanEditDraft) => ({
+  workout_type: draft.workout_type,
+  priority: draft.priority,
+  title: draft.title.trim(),
+  prescription: draft.prescription.trim(),
+  intensity_target: draft.intensity_target.trim(),
+  duration_min: draft.duration_min.trim() === '' ? null : Math.round(Number(draft.duration_min)),
+  distance_km: draft.distance_km.trim() === '' ? null : Number(draft.distance_km),
+  elevation_gain_m: draft.elevation_gain_m.trim() === '' ? null : Math.round(Number(draft.elevation_gain_m)),
+  route_id: draft.route_id.trim() || null,
+})
+
+const validatePlanEditDraft = (draft: PlanEditDraft) => {
+  const payload = buildPlanEditPayload(draft)
+  if (!payload.title) return '課表標題不能空白。'
+  if (!payload.prescription) return '課表內容不能空白。'
+  if (!payload.intensity_target) return '強度目標不能空白。'
+  if (payload.duration_min !== null && (!Number.isFinite(payload.duration_min) || payload.duration_min < 0)) {
+    return '總時間需為 0 以上的分鐘數。'
+  }
+  if (payload.distance_km !== null && (!Number.isFinite(payload.distance_km) || payload.distance_km < 0)) {
+    return '距離需為 0 以上的公里數。'
+  }
+  if (payload.elevation_gain_m !== null && (!Number.isFinite(payload.elevation_gain_m) || payload.elevation_gain_m < 0)) {
+    return '爬升需為 0 以上的公尺數。'
+  }
+  return null
+}
 
 const sortPlan = (workouts: PlannedWorkout[]) =>
   [...workouts].sort(
@@ -818,6 +882,45 @@ function App() {
     setIsLoading(false)
   }
 
+  const editPlannedWorkout = async (workout: PlannedWorkout, draft: PlanEditDraft) => {
+    const validationMessage = validatePlanEditDraft(draft)
+    if (validationMessage) {
+      setNotice({ kind: 'error', text: validationMessage })
+      return
+    }
+
+    const payload = buildPlanEditPayload(draft)
+
+    if (!plannedWorkouts.some((planned) => planned.id === workout.id)) {
+      setPlanOverrides((overrides) => ({
+        ...overrides,
+        [workout.id]: {
+          ...overrides[workout.id],
+          ...payload,
+        },
+      }))
+      setNotice({ kind: 'ok', text: '已在本機預覽課表編輯；登入並寫入 Supabase 後才能永久保存。' })
+      return
+    }
+
+    if (!supabase || !session) return
+    setIsLoading(true)
+    const { error } = await supabase
+      .from('planned_workouts')
+      .update(payload)
+      .eq('id', workout.id)
+      .eq('user_id', session.user.id)
+
+    if (error) {
+      console.error('Edit planned workout failed', error)
+      setNotice({ kind: 'error', text: buildSaveMessage('編輯課表', error) })
+    } else {
+      setNotice({ kind: 'ok', text: '已更新課表內容。' })
+      await refreshData()
+    }
+    setIsLoading(false)
+  }
+
   const deleteWorkoutLog = async (log: WorkoutLog) => {
     if (!log.id || !supabase || !session) return
     const confirmed = window.confirm(`確定刪除 ${log.workout_date} 的訓練紀錄？分段資料也會一併刪除。`)
@@ -1211,6 +1314,7 @@ function App() {
                 isSaving={savingTargetId !== null || isLoading}
                 onSubmit={submitLog}
                 onMove={movePlannedWorkout}
+                onEdit={editPlannedWorkout}
               />
             ))}
           </div>
@@ -1259,6 +1363,7 @@ function WeekPlanSection({
   isSaving,
   onSubmit,
   onMove,
+  onEdit,
 }: {
   week: number
   workouts: PlannedWorkout[]
@@ -1274,6 +1379,7 @@ function WeekPlanSection({
     existingLog: WorkoutLog | null,
   ) => Promise<void>
   onMove: (workout: PlannedWorkout, draft: PlanMoveDraft) => Promise<void>
+  onEdit: (workout: PlannedWorkout, draft: PlanEditDraft) => Promise<void>
 }) {
   const totalMinutes = workouts.reduce((sum, workout) => sum + (workout.duration_min ?? 0), 0)
   const keyCount = workouts.filter((workout) => workout.priority === 'key').length
@@ -1290,7 +1396,7 @@ function WeekPlanSection({
       <div className="plan-list">
         {workouts.map((workout) => (
           <WorkoutAccordion
-            key={workout.id}
+            key={`${workout.id}-${workout.week_number}-${workout.day_label}-${workout.title}-${workout.duration_min ?? 'none'}`}
             workout={workout}
             logs={logsByWorkout.get(workout.id) ?? []}
                 todayLog={logsByDate.get(requestedWorkoutDate) ?? null}
@@ -1299,6 +1405,7 @@ function WeekPlanSection({
             isSaving={isSaving}
             onSubmit={onSubmit}
             onMove={onMove}
+            onEdit={onEdit}
           />
         ))}
       </div>
@@ -1315,6 +1422,7 @@ function WorkoutAccordion({
   isSaving,
   onSubmit,
   onMove,
+  onEdit,
 }: {
   workout: PlannedWorkout
   logs: WorkoutLog[]
@@ -1328,6 +1436,7 @@ function WorkoutAccordion({
     existingLog: WorkoutLog | null,
   ) => Promise<void>
   onMove: (workout: PlannedWorkout, draft: PlanMoveDraft) => Promise<void>
+  onEdit: (workout: PlannedWorkout, draft: PlanEditDraft) => Promise<void>
 }) {
   const latestLog = logs[0] ?? null
   const formLog = latestLog ?? todayLog
@@ -1337,6 +1446,8 @@ function WorkoutAccordion({
     day_label: workout.day_label,
     reason: '',
   })
+  const [isEditingPlan, setIsEditingPlan] = useState(false)
+  const [editDraft, setEditDraft] = useState<PlanEditDraft>(() => workoutToEditDraft(workout))
 
   return (
     <details className="workout-accordion">
@@ -1353,6 +1464,19 @@ function WorkoutAccordion({
           <strong>課表內容</strong>
           <p>{workout.prescription}</p>
         </div>
+        <div className="edit-actions">
+          <button type="button" className="secondary mini-button" onClick={() => setIsEditingPlan((value) => !value)}>
+            {isEditingPlan ? '收合課表編輯' : '編輯課表內容'}
+          </button>
+        </div>
+        {isEditingPlan && (
+          <PlanEditForm
+            draft={editDraft}
+            onChange={setEditDraft}
+            onSave={() => onEdit(workout, editDraft)}
+            isSaving={isSaving}
+          />
+        )}
         <div className="move-panel">
           <strong>移動 / 補課</strong>
           <label>
@@ -1404,6 +1528,102 @@ function WorkoutAccordion({
         />
       </div>
     </details>
+  )
+}
+
+function PlanEditForm({
+  draft,
+  onChange,
+  onSave,
+  isSaving,
+}: {
+  draft: PlanEditDraft
+  onChange: React.Dispatch<React.SetStateAction<PlanEditDraft>>
+  onSave: () => Promise<void>
+  isSaving: boolean
+}) {
+  return (
+    <div className="plan-edit-panel">
+      <strong>編輯課表內容</strong>
+      <label>
+        類型
+        <select
+          value={draft.workout_type}
+          onChange={(event) => onChange((value) => ({ ...value, workout_type: event.target.value as PlannedWorkout['workout_type'] }))}
+        >
+          {Object.entries(workoutTypeLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        優先級
+        <select
+          value={draft.priority}
+          onChange={(event) => onChange((value) => ({ ...value, priority: event.target.value as PlannedWorkout['priority'] }))}
+        >
+          {Object.entries(priorityLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="wide">
+        標題
+        <input value={draft.title} onChange={(event) => onChange((value) => ({ ...value, title: event.target.value }))} />
+      </label>
+      <label className="wide">
+        課表內容
+        <textarea
+          rows={4}
+          value={draft.prescription}
+          onChange={(event) => onChange((value) => ({ ...value, prescription: event.target.value }))}
+        />
+      </label>
+      <label className="wide">
+        強度目標
+        <input value={draft.intensity_target} onChange={(event) => onChange((value) => ({ ...value, intensity_target: event.target.value }))} />
+      </label>
+      <label>
+        總時間（分鐘）
+        <input
+          type="number"
+          min="0"
+          value={draft.duration_min}
+          onChange={(event) => onChange((value) => ({ ...value, duration_min: event.target.value }))}
+        />
+      </label>
+      <label>
+        距離（km，可空白）
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={draft.distance_km}
+          onChange={(event) => onChange((value) => ({ ...value, distance_km: event.target.value }))}
+        />
+      </label>
+      <label>
+        爬升（m，可空白）
+        <input
+          type="number"
+          min="0"
+          value={draft.elevation_gain_m}
+          onChange={(event) => onChange((value) => ({ ...value, elevation_gain_m: event.target.value }))}
+        />
+      </label>
+      <label>
+        路線
+        <select value={draft.route_id} onChange={(event) => onChange((value) => ({ ...value, route_id: event.target.value }))}>
+          <option value="">不指定</option>
+          {trailRoutes.map((route) => (
+            <option key={route.id} value={route.id}>{route.name}</option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className="secondary plan-save-button" onClick={onSave} disabled={isSaving}>
+        儲存課表編輯
+      </button>
+    </div>
   )
 }
 

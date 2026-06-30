@@ -13,6 +13,7 @@
 - Verify remote fill link flow: Email draft, copy-link fallback, Magic Link login, and saved workout round trip.
 - Verify deployed weekly plan accordion: current week opens by default and neighboring weeks expand on demand.
 - Verify deployed planned-workout move flow against live Supabase.
+- Verify deployed planned-workout edit flow against live Supabase.
 - Verify deployed activity delete flow against live Supabase.
 - Verify date-specific remote fill link, for example `?date=YYYY-MM-DD#plan`.
 - Deploy `send-fill-link` Supabase Edge Function and set `RESEND_API_KEY` / `RESEND_FROM_EMAIL` secrets.
@@ -59,3 +60,4 @@
 - Added recent-activity edit flow and remote fill link fallback controls.
 - Added weekly plan accordion UI, planned-workout move controls, activity delete, 4-week review metrics, and date-specific remote fill links.
 - Added `send-fill-link` Supabase Edge Function and frontend automatic email send action with Email draft/copy-link fallbacks.
+- Added planned-workout editing for type, priority, title, prescription, intensity target, duration, distance, elevation, and route.

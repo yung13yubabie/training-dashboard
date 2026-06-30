@@ -14,6 +14,8 @@ Follow-up update: redesigned the plan surface with weekly folding. The current t
 
 Follow-up update: added `send-fill-link` Supabase Edge Function for true automatic remote fill email via Resend. The frontend now has an automatic send button using `supabase.functions.invoke`, while retaining Email draft and copy-link fallbacks.
 
+Follow-up update: added editable planned-workout content inside each workout accordion. Users can edit type, priority, title, prescription, intensity target, duration, distance, elevation, and route; remote Supabase plans persist to `planned_workouts`, while local seed plans use temporary in-browser preview until seeded.
+
 ## Added or Modified
 
 - `src/App.tsx`
@@ -32,6 +34,7 @@ Follow-up update: added `send-fill-link` Supabase Edge Function for true automat
 - `npm run build` passes.
 - Render smoke check with Playwright fallback passed at 1440x1000 and 390x844: page renders, no console errors, 12 week sections exist, current week is open, remote fill date query parameter is applied.
 - Render smoke check after email-function UI update passed: no console errors, remote panel shows automatic send/fallback options, date query parameter is applied, and only one current week is open.
+- Render smoke check after planned-workout edit update passed at 1440x1000 and 390x844: 12 week sections exist, only one week is open, the planned-workout edit panel opens, edit inputs render, move controls still render, remote fill controls still render, date query parameter is applied, and no console errors are emitted.
 
 Build produced non-blocking bundle-size/plugin timing warnings only.
 
@@ -44,6 +47,7 @@ Build produced non-blocking bundle-size/plugin timing warnings only.
 - Verify a recent activity can be opened, edited, saved, refreshed, and still linked to its planned workout when applicable.
 - Verify the remote fill flow outside the happy path: invalid email disables Email draft, copy-link works, and the receiver still must Magic Link login.
 - Verify planned-workout move persists on live Supabase after Magic Link login.
+- Verify planned-workout content edits persist on live Supabase after Magic Link login.
 - Verify activity delete cascades segment rows in live Supabase.
 - Deploy `supabase/functions/send-fill-link`, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase secrets, then verify actual Resend delivery.
 
