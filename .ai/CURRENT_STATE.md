@@ -17,6 +17,8 @@ Live Supabase currently exposes the expected workout tables and newer metric col
 
 The parent `C:\Users\LIN\package.json` contains forwarding scripts so `npm run dev` from `C:\Users\LIN` delegates to `training-dashboard`.
 
+Local verification includes `npm run test:smoke`, which starts Vite, opens a local Chrome/Edge browser with Playwright Core, and checks the weekly accordion, planned-workout edit panel, move controls, remote fill controls, and target date query at desktop and mobile viewports.
+
 Known training assumptions:
 
 - Initial plan length: 12 weeks.

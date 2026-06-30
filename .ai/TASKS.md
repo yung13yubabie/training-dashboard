@@ -61,3 +61,4 @@
 - Added weekly plan accordion UI, planned-workout move controls, activity delete, 4-week review metrics, and date-specific remote fill links.
 - Added `send-fill-link` Supabase Edge Function and frontend automatic email send action with Email draft/copy-link fallbacks.
 - Added planned-workout editing for type, priority, title, prescription, intensity target, duration, distance, elevation, and route.
+- Added `npm run test:smoke` for repeatable local UI verification of weekly accordion, planned-workout edit, move controls, remote fill controls, and date query behavior.

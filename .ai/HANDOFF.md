@@ -16,10 +16,14 @@ Follow-up update: added `send-fill-link` Supabase Edge Function for true automat
 
 Follow-up update: added editable planned-workout content inside each workout accordion. Users can edit type, priority, title, prescription, intensity target, duration, distance, elevation, and route; remote Supabase plans persist to `planned_workouts`, while local seed plans use temporary in-browser preview until seeded.
 
+Follow-up update: added `npm run test:smoke` as a repeatable local UI smoke gate. It starts Vite, opens local Chrome/Edge through Playwright Core, and checks desktop plus mobile render behavior for the folded weekly plan, planned-workout edit controls, move controls, remote fill controls, and date query parameter.
+
 ## Added or Modified
 
 - `src/App.tsx`
 - `src/App.css`
+- `scripts/smoke.mjs`
+- `package.json`
 - `src/types.ts`
 - `supabase/functions/send-fill-link/index.ts`
 - `.ai/CURRENT_STATE.md`
@@ -35,6 +39,7 @@ Follow-up update: added editable planned-workout content inside each workout acc
 - Render smoke check with Playwright fallback passed at 1440x1000 and 390x844: page renders, no console errors, 12 week sections exist, current week is open, remote fill date query parameter is applied.
 - Render smoke check after email-function UI update passed: no console errors, remote panel shows automatic send/fallback options, date query parameter is applied, and only one current week is open.
 - Render smoke check after planned-workout edit update passed at 1440x1000 and 390x844: 12 week sections exist, only one week is open, the planned-workout edit panel opens, edit inputs render, move controls still render, remote fill controls still render, date query parameter is applied, and no console errors are emitted.
+- `npm run test:smoke` passes and reports 12 week sections, one open week, 60 workout accordions, planned-workout edit inputs, remote fill fallback buttons, and date query application at 1440x1000 and 390x844.
 
 Build produced non-blocking bundle-size/plugin timing warnings only.
 
