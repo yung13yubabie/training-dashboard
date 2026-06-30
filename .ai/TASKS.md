@@ -8,6 +8,7 @@
 - Verify live authenticated Supabase workout log submission after rerunning the latest schema.
 - Verify workout segment insert/read after rerunning the latest schema.
 - Verify the one-log-per-day update path against live Supabase.
+- Deploy the `22003` frontend validation fix and verify live workout save with stride values entered in meters.
 - If true automatic email sending is needed, design a backend flow with Supabase Edge Functions plus an email provider; do not put provider secrets in the frontend.
 
 ## DOING
@@ -47,3 +48,4 @@
 - Added weekend missed-session adjustment guidance and adjustable fartlek sessions.
 - Added an Email link generator for remote form access without exposing secrets.
 - Changed plan import to archive old active plan versions before creating a new active plan.
+- Added client-side validation and clearer messaging for `22003 numeric field overflow` caused by unit/range mismatches in wearable numeric fields.

@@ -59,6 +59,13 @@ type SegmentDraft = {
   stride_m: string
   calories: string
 }
+type NumericRange = {
+  label: string
+  value: number | null
+  min?: number
+  max?: number
+  hint?: string
+}
 
 const dayLabels: Record<string, string> = {
   Tue: '週二',
@@ -201,6 +208,63 @@ const toInteger = (value: FormDataEntryValue | null, fallback: number) => {
 
 const valueOrEmpty = (value: number | string | null | undefined) => (value === null || value === undefined ? '' : String(value))
 
+const validateNumericRanges = (ranges: NumericRange[]) => {
+  const invalid = ranges.find(({ value, min, max }) => {
+    if (value === null) return false
+    if (min !== undefined && value < min) return true
+    return max !== undefined && value > max
+  })
+
+  if (!invalid) return null
+
+  const lower = invalid.min === undefined ? null : `>= ${invalid.min}`
+  const upper = invalid.max === undefined ? null : `<= ${invalid.max}`
+  const rule = [lower, upper].filter(Boolean).join(' 且 ')
+
+  return `${invalid.label} 的數值 ${invalid.value} 超出可儲存範圍（${rule}）。${invalid.hint ? ` ${invalid.hint}` : ''}`
+}
+
+const validateWorkoutLog = (log: WorkoutLog) =>
+  validateNumericRanges([
+    { label: '功率體重比', value: log.power_weight_ratio, min: 0, max: 20 },
+    {
+      label: '平均步幅',
+      value: log.avg_stride_m,
+      min: 0,
+      max: 9.99,
+      hint: '此欄位使用公尺；如果裝置顯示 120 cm，請填 1.20。',
+    },
+    {
+      label: '最高步幅',
+      value: log.max_stride_m,
+      min: 0,
+      max: 9.99,
+      hint: '此欄位使用公尺；如果裝置顯示 160 cm，請填 1.60。',
+    },
+    { label: '垂直擺動平均', value: log.avg_vertical_oscillation_cm, min: 0, max: 999.9 },
+    { label: '垂直擺動最大', value: log.max_vertical_oscillation_cm, min: 0, max: 999.9 },
+    { label: '垂直比率平均', value: log.avg_vertical_ratio_percent, min: 0, max: 999.9 },
+    { label: '有氧訓練效果', value: log.aerobic_training_effect, min: 0, max: 99.9 },
+    { label: '無氧訓練效果', value: log.anaerobic_training_effect, min: 0, max: 99.9 },
+  ])
+
+const validateSegmentInputs = (form: FormData) =>
+  validateNumericRanges(
+    form.getAll('segment_index').flatMap((rawIndex) => {
+      const index = Number(rawIndex)
+      if (!Number.isFinite(index)) return []
+      return [
+        {
+          label: `第 ${index} 段步幅`,
+          value: toNumberOrNull(form.get(`seg_${index}_stride`)),
+          min: 0,
+          max: 9.99,
+          hint: '此欄位使用公尺；如果裝置顯示公分，請先除以 100。',
+        },
+      ]
+    }),
+  )
+
 const blankSegmentDraft = (segmentIndex: number): SegmentDraft => ({
   key: crypto.randomUUID(),
   segment_index: segmentIndex,
@@ -284,6 +348,10 @@ const buildSaveMessage = (stage: string, error: SupabaseErrorLike) => {
 
   if (error.code === '22P02') {
     return `${stage}失敗：欄位格式不正確，常見原因是整數欄位填入小數或文字。${detail ? `錯誤：${detail}` : ''}`
+  }
+
+  if (error.code === '22003') {
+    return `${stage}失敗：數值超出資料庫欄位可儲存範圍。常見原因是步幅欄位需填公尺，例如 120 cm 請填 1.20。${detail ? `錯誤：${detail}` : ''}`
   }
 
   if (error.code === '42501' || error.message?.toLowerCase().includes('permission')) {
@@ -589,6 +657,13 @@ function App() {
       notes: String(form.get('notes') || '') || null,
     }
 
+    const validationError = validateWorkoutLog(log) ?? validateSegmentInputs(form)
+    if (validationError) {
+      setNotice({ kind: 'error', text: validationError })
+      setSavingTargetId(null)
+      return
+    }
+
     const savedLogResult = existingLogForDate?.id
       ? await supabase
           .from('workout_logs')
@@ -650,7 +725,7 @@ function App() {
 
   const exportCsv = () => {
     const rows = [
-      ['日期', '總時間', '總距離', '消耗', '平均配速', '最佳配速', '平均心率', '最高心率', 'RPE', '疲勞', '疼痛', 'Zone 2', '備註'],
+      ['日期', '總時間（分）', '總距離（km）', '消耗（kcal）', '平均配速（min/km）', '最佳配速（min/km）', '平均心率（bpm）', '最高心率（bpm）', 'RPE（1-10）', '疲勞（1-10）', '疼痛（0-10）', 'Zone 2（分）', '備註'],
       ...logs.map((log) => [
         log.workout_date,
         log.duration_min,
@@ -1078,33 +1153,33 @@ function WorkoutLogForm({
         <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout.duration_min ?? 45)} min="0" />
         <Field label="總距離（km）" name="distance_km" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.distance_km)} />
         <Field label="消耗（kcal）" name="calories" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.calories)} />
-        <Field label="平均配速" name="avg_pace" placeholder="5:20" defaultValue={existingLog?.avg_pace ?? ''} />
-        <Field label="最佳配速" name="best_pace" placeholder="4:45" defaultValue={existingLog?.best_pace ?? ''} />
-        <Field label="平均心率" name="avg_hr" type="number" defaultValue={valueOrEmpty(existingLog?.avg_hr)} />
-        <Field label="最高心率" name="max_hr" type="number" defaultValue={valueOrEmpty(existingLog?.max_hr)} />
-        <Field label="平均功率 W" name="avg_power_w" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.avg_power_w)} />
-        <Field label="功率體重比" name="power_weight_ratio" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.power_weight_ratio)} />
-        <Field label="平均步頻" name="avg_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.avg_cadence_spm)} />
-        <Field label="最高步頻" name="max_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.max_cadence_spm)} />
-        <Field label="平均步幅" name="avg_stride_m" type="number" step="0.01" defaultValue={valueOrEmpty(existingLog?.avg_stride_m)} />
-        <Field label="最高步幅" name="max_stride_m" type="number" step="0.01" defaultValue={valueOrEmpty(existingLog?.max_stride_m)} />
-        <Field label="垂直擺動平均" name="avg_vertical_oscillation_cm" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.avg_vertical_oscillation_cm)} />
-        <Field label="垂直擺動最大" name="max_vertical_oscillation_cm" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.max_vertical_oscillation_cm)} />
-        <Field label="垂直比率平均" name="avg_vertical_ratio_percent" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.avg_vertical_ratio_percent)} />
-        <Field label="觸地時間平均 ms" name="avg_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.avg_ground_contact_ms)} />
-        <Field label="觸地時間最短 ms" name="min_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.min_ground_contact_ms)} />
-        <Field label="有氧訓練效果" name="aerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.aerobic_training_effect)} />
-        <Field label="無氧訓練效果" name="anaerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.anaerobic_training_effect)} />
-        <Field label="RPE" name="rpe" type="number" min="1" max="10" defaultValue={String(existingLog?.rpe ?? 4)} />
-        <Field label="疲勞 1-10" name="fatigue" type="number" min="1" max="10" defaultValue={String(existingLog?.fatigue ?? 3)} />
-        <Field label="疼痛 0-10" name="pain" type="number" min="0" max="10" defaultValue={String(existingLog?.pain ?? 0)} />
-        <Field label="睡眠時數" name="sleep_hours" type="number" step="0.1" min="0" max="24" defaultValue={valueOrEmpty(existingLog?.sleep_hours)} />
-        <Field label="靜息心率" name="resting_hr" type="number" defaultValue={valueOrEmpty(existingLog?.resting_hr)} />
-        <Field label="Z1 分鐘" name="zone1_min" type="number" defaultValue={String(existingLog?.zone1_min ?? 0)} min="0" />
-        <Field label="Z2 分鐘" name="zone2_min" type="number" defaultValue={String(existingLog?.zone2_min ?? 0)} min="0" />
-        <Field label="Z3 分鐘" name="zone3_min" type="number" defaultValue={String(existingLog?.zone3_min ?? 0)} min="0" />
-        <Field label="Z4 分鐘" name="zone4_min" type="number" defaultValue={String(existingLog?.zone4_min ?? 0)} min="0" />
-        <Field label="Z5 分鐘" name="zone5_min" type="number" defaultValue={String(existingLog?.zone5_min ?? 0)} min="0" />
+        <Field label="平均配速（min/km）" name="avg_pace" placeholder="5:20" defaultValue={existingLog?.avg_pace ?? ''} />
+        <Field label="最佳配速（min/km）" name="best_pace" placeholder="4:45" defaultValue={existingLog?.best_pace ?? ''} />
+        <Field label="平均心率（bpm）" name="avg_hr" type="number" defaultValue={valueOrEmpty(existingLog?.avg_hr)} />
+        <Field label="最高心率（bpm）" name="max_hr" type="number" defaultValue={valueOrEmpty(existingLog?.max_hr)} />
+        <Field label="平均功率（W）" name="avg_power_w" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.avg_power_w)} />
+        <Field label="功率體重比（W/kg）" name="power_weight_ratio" type="number" step="0.01" min="0" max="20" defaultValue={valueOrEmpty(existingLog?.power_weight_ratio)} />
+        <Field label="平均步頻（spm）" name="avg_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.avg_cadence_spm)} />
+        <Field label="最高步頻（spm）" name="max_cadence_spm" type="number" defaultValue={valueOrEmpty(existingLog?.max_cadence_spm)} />
+        <Field label="平均步幅（m）" name="avg_stride_m" type="number" step="0.01" min="0" max="9.99" defaultValue={valueOrEmpty(existingLog?.avg_stride_m)} />
+        <Field label="最高步幅（m）" name="max_stride_m" type="number" step="0.01" min="0" max="9.99" defaultValue={valueOrEmpty(existingLog?.max_stride_m)} />
+        <Field label="垂直擺動平均（cm）" name="avg_vertical_oscillation_cm" type="number" step="0.1" min="0" max="999.9" defaultValue={valueOrEmpty(existingLog?.avg_vertical_oscillation_cm)} />
+        <Field label="垂直擺動最大（cm）" name="max_vertical_oscillation_cm" type="number" step="0.1" min="0" max="999.9" defaultValue={valueOrEmpty(existingLog?.max_vertical_oscillation_cm)} />
+        <Field label="垂直比率平均（%）" name="avg_vertical_ratio_percent" type="number" step="0.1" min="0" max="999.9" defaultValue={valueOrEmpty(existingLog?.avg_vertical_ratio_percent)} />
+        <Field label="觸地時間平均（ms）" name="avg_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.avg_ground_contact_ms)} />
+        <Field label="觸地時間最短（ms）" name="min_ground_contact_ms" type="number" defaultValue={valueOrEmpty(existingLog?.min_ground_contact_ms)} />
+        <Field label="有氧訓練效果（0-5）" name="aerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.aerobic_training_effect)} />
+        <Field label="無氧訓練效果（0-5）" name="anaerobic_training_effect" type="number" step="0.1" defaultValue={valueOrEmpty(existingLog?.anaerobic_training_effect)} />
+        <Field label="RPE（1-10）" name="rpe" type="number" min="1" max="10" defaultValue={String(existingLog?.rpe ?? 4)} />
+        <Field label="疲勞（1-10）" name="fatigue" type="number" min="1" max="10" defaultValue={String(existingLog?.fatigue ?? 3)} />
+        <Field label="疼痛（0-10）" name="pain" type="number" min="0" max="10" defaultValue={String(existingLog?.pain ?? 0)} />
+        <Field label="睡眠時數（小時）" name="sleep_hours" type="number" step="0.1" min="0" max="24" defaultValue={valueOrEmpty(existingLog?.sleep_hours)} />
+        <Field label="靜息心率（bpm）" name="resting_hr" type="number" defaultValue={valueOrEmpty(existingLog?.resting_hr)} />
+        <Field label="Z1（分鐘）" name="zone1_min" type="number" defaultValue={String(existingLog?.zone1_min ?? 0)} min="0" />
+        <Field label="Z2（分鐘）" name="zone2_min" type="number" defaultValue={String(existingLog?.zone2_min ?? 0)} min="0" />
+        <Field label="Z3（分鐘）" name="zone3_min" type="number" defaultValue={String(existingLog?.zone3_min ?? 0)} min="0" />
+        <Field label="Z4（分鐘）" name="zone4_min" type="number" defaultValue={String(existingLog?.zone4_min ?? 0)} min="0" />
+        <Field label="Z5（分鐘）" name="zone5_min" type="number" defaultValue={String(existingLog?.zone5_min ?? 0)} min="0" />
         <Field label="總爬升（m）" name="elevation_gain_m" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.elevation_gain_m)} />
       </fieldset>
 
@@ -1115,13 +1190,13 @@ function WorkoutLogForm({
           <div className="segment-head">
             <span>操作</span>
             <span>段</span>
-            <span>距離 km</span>
-            <span>配速</span>
-            <span>用時</span>
-            <span>心率</span>
-            <span>步頻</span>
-            <span>步幅</span>
-            <span>消耗</span>
+            <span>距離（km）</span>
+            <span>配速（min/km）</span>
+            <span>用時（mm:ss）</span>
+            <span>心率（bpm）</span>
+            <span>步頻（spm）</span>
+            <span>步幅（m）</span>
+            <span>消耗（kcal）</span>
           </div>
           {segmentDrafts.map((segment) => (
             <div className="segment-row" key={segment.key}>
@@ -1135,7 +1210,7 @@ function WorkoutLogForm({
               <input aria-label={`第 ${segment.segment_index} 段用時`} name={`seg_${segment.segment_index}_duration`} placeholder="10:00" value={segment.duration_text} onChange={(event) => updateSegment(segment.key, 'duration_text', event.target.value)} />
               <input aria-label={`第 ${segment.segment_index} 段心率`} name={`seg_${segment.segment_index}_hr`} type="number" value={segment.avg_hr} onChange={(event) => updateSegment(segment.key, 'avg_hr', event.target.value)} />
               <input aria-label={`第 ${segment.segment_index} 段步頻`} name={`seg_${segment.segment_index}_cadence`} type="number" value={segment.cadence_spm} onChange={(event) => updateSegment(segment.key, 'cadence_spm', event.target.value)} />
-              <input aria-label={`第 ${segment.segment_index} 段步幅`} name={`seg_${segment.segment_index}_stride`} type="number" step="0.01" value={segment.stride_m} onChange={(event) => updateSegment(segment.key, 'stride_m', event.target.value)} />
+              <input aria-label={`第 ${segment.segment_index} 段步幅（m）`} name={`seg_${segment.segment_index}_stride`} type="number" step="0.01" min="0" max="9.99" value={segment.stride_m} onChange={(event) => updateSegment(segment.key, 'stride_m', event.target.value)} />
               <input aria-label={`第 ${segment.segment_index} 段消耗`} name={`seg_${segment.segment_index}_calories`} type="number" value={segment.calories} onChange={(event) => updateSegment(segment.key, 'calories', event.target.value)} />
             </div>
           ))}
@@ -1202,26 +1277,26 @@ function LogDetail({ log, segments }: { log: WorkoutLog; segments: WorkoutSegmen
         <Metric label="距離" value={`${log.distance_km ?? '-'} km`} />
         <Metric label="時間" value={`${log.duration_min} 分`} />
         <Metric label="消耗" value={`${log.calories ?? '-'} kcal`} />
-        <Metric label="平均配速" value={log.avg_pace ?? '-'} />
-        <Metric label="最佳配速" value={log.best_pace ?? '-'} />
-        <Metric label="平均心率" value={log.avg_hr ?? '-'} />
-        <Metric label="最高心率" value={log.max_hr ?? '-'} />
-        <Metric label="平均功率" value={log.avg_power_w ?? '-'} />
-        <Metric label="功率體重比" value={log.power_weight_ratio ?? '-'} />
-        <Metric label="平均步頻" value={log.avg_cadence_spm ?? '-'} />
-        <Metric label="最高步頻" value={log.max_cadence_spm ?? '-'} />
-        <Metric label="平均步幅" value={log.avg_stride_m ?? '-'} />
-        <Metric label="最高步幅" value={log.max_stride_m ?? '-'} />
-        <Metric label="垂直擺動平均" value={log.avg_vertical_oscillation_cm ?? '-'} />
-        <Metric label="垂直擺動最大" value={log.max_vertical_oscillation_cm ?? '-'} />
-        <Metric label="垂直比率平均" value={log.avg_vertical_ratio_percent ?? '-'} />
-        <Metric label="觸地時間平均" value={log.avg_ground_contact_ms ?? '-'} />
-        <Metric label="觸地時間最短" value={log.min_ground_contact_ms ?? '-'} />
-        <Metric label="有氧效果" value={log.aerobic_training_effect ?? '-'} />
-        <Metric label="無氧效果" value={log.anaerobic_training_effect ?? '-'} />
-        <Metric label="RPE" value={log.rpe} />
-        <Metric label="疲勞" value={log.fatigue} />
-        <Metric label="疼痛" value={log.pain} />
+        <Metric label="平均配速" value={log.avg_pace ? `${log.avg_pace} min/km` : '-'} />
+        <Metric label="最佳配速" value={log.best_pace ? `${log.best_pace} min/km` : '-'} />
+        <Metric label="平均心率" value={log.avg_hr === null ? '-' : `${log.avg_hr} bpm`} />
+        <Metric label="最高心率" value={log.max_hr === null ? '-' : `${log.max_hr} bpm`} />
+        <Metric label="平均功率" value={log.avg_power_w === null ? '-' : `${log.avg_power_w} W`} />
+        <Metric label="功率體重比" value={log.power_weight_ratio === null ? '-' : `${log.power_weight_ratio} W/kg`} />
+        <Metric label="平均步頻" value={log.avg_cadence_spm === null ? '-' : `${log.avg_cadence_spm} spm`} />
+        <Metric label="最高步頻" value={log.max_cadence_spm === null ? '-' : `${log.max_cadence_spm} spm`} />
+        <Metric label="平均步幅" value={log.avg_stride_m === null ? '-' : `${log.avg_stride_m} m`} />
+        <Metric label="最高步幅" value={log.max_stride_m === null ? '-' : `${log.max_stride_m} m`} />
+        <Metric label="垂直擺動平均" value={log.avg_vertical_oscillation_cm === null ? '-' : `${log.avg_vertical_oscillation_cm} cm`} />
+        <Metric label="垂直擺動最大" value={log.max_vertical_oscillation_cm === null ? '-' : `${log.max_vertical_oscillation_cm} cm`} />
+        <Metric label="垂直比率平均" value={log.avg_vertical_ratio_percent === null ? '-' : `${log.avg_vertical_ratio_percent} %`} />
+        <Metric label="觸地時間平均" value={log.avg_ground_contact_ms === null ? '-' : `${log.avg_ground_contact_ms} ms`} />
+        <Metric label="觸地時間最短" value={log.min_ground_contact_ms === null ? '-' : `${log.min_ground_contact_ms} ms`} />
+        <Metric label="有氧效果" value={log.aerobic_training_effect === null ? '-' : `${log.aerobic_training_effect} / 5`} />
+        <Metric label="無氧效果" value={log.anaerobic_training_effect === null ? '-' : `${log.anaerobic_training_effect} / 5`} />
+        <Metric label="RPE" value={`${log.rpe} / 10`} />
+        <Metric label="疲勞" value={`${log.fatigue} / 10`} />
+        <Metric label="疼痛" value={`${log.pain} / 10`} />
         <Metric label="爬升" value={`${log.elevation_gain_m ?? '-'} m`} />
       </div>
       <div className="zone-line">
@@ -1234,11 +1309,11 @@ function LogDetail({ log, segments }: { log: WorkoutLog; segments: WorkoutSegmen
             <div className="saved-segment" key={segment.id ?? `${segment.workout_log_id}-${segment.segment_index}`}>
               <span>#{segment.segment_index}</span>
               <span>{segment.distance_km ?? '-'} km</span>
-              <span>{segment.pace ?? '-'}</span>
-              <span>{segment.duration_text ?? '-'}</span>
-              <span>HR {segment.avg_hr ?? '-'}</span>
-              <span>步頻 {segment.cadence_spm ?? '-'}</span>
-              <span>步幅 {segment.stride_m ?? '-'}</span>
+              <span>{segment.pace ? `${segment.pace} min/km` : '-'}</span>
+              <span>{segment.duration_text ? `${segment.duration_text} mm:ss` : '-'}</span>
+              <span>HR {segment.avg_hr === null ? '-' : `${segment.avg_hr} bpm`}</span>
+              <span>步頻 {segment.cadence_spm === null ? '-' : `${segment.cadence_spm} spm`}</span>
+              <span>步幅 {segment.stride_m === null ? '-' : `${segment.stride_m} m`}</span>
               <span>{segment.calories ?? '-'} kcal</span>
             </div>
           ))}

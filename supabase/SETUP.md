@@ -41,7 +41,7 @@ Get-Content C:\Users\LIN\training-dashboard\supabase\schema.sql -Raw | Set-Clipb
 - 重新匯入 12 週課表時，前端會把舊的 active plan version 標成 archived，再建立新的 active plan。
 - Amazfit / Zepp 的裝置數據欄位已放寬限制，避免真實裝置值被過窄的 check constraint 擋下。
 
-如果你遇到 `23514`、`22P02`、`PGRST204` 或 `PGRST205`，先重跑最新版 `schema.sql`，再重新登入測試。
+如果你遇到 `22003`、`23514`、`22P02`、`PGRST204` 或 `PGRST205`，先確認錯誤訊息中的欄位與輸入單位，再視情況重跑最新版 `schema.sql` 並重新登入測試。
 
 ## 3. Auth Redirect
 
@@ -114,6 +114,10 @@ notify pgrst, 'reload schema';
 ### `22P02`
 
 欄位格式錯誤，常見原因是整數欄位填入小數或文字。前端目前會把整數型欄位四捨五入後再送出。
+
+### `22003`
+
+數值超出資料庫 numeric 欄位可儲存範圍。常見原因是步幅欄位使用公尺儲存，但裝置畫面顯示公分；例如 120 cm 應填 `1.20`，不是 `120`。
 
 ### `23505`
 

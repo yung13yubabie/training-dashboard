@@ -136,6 +136,10 @@ create table if not exists public.workout_segments (
   created_at timestamptz not null default now()
 );
 
+comment on column public.workout_logs.avg_stride_m is 'Average stride length in meters. Convert device values shown in centimeters before saving.';
+comment on column public.workout_logs.max_stride_m is 'Maximum stride length in meters. Convert device values shown in centimeters before saving.';
+comment on column public.workout_segments.stride_m is 'Segment stride length in meters. Convert device values shown in centimeters before saving.';
+
 create table if not exists public.trail_routes (
   id text primary key,
   user_id uuid references auth.users(id) on delete cascade,

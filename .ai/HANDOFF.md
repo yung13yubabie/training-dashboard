@@ -2,6 +2,36 @@
 
 ## This Round
 
+Investigated the latest workout save failure with Supabase code `22003` and detail `numeric field overflow / precision 4, scale 2`. Root cause is most likely a unit/range mismatch in `numeric(4,2)` wearable fields, especially stride fields stored as meters (`avg_stride_m`, `max_stride_m`, segment `stride_m`) while device exports may show centimeters.
+
+Implemented client-side range validation before Supabase writes, clarified stride labels as meters, added a `22003` save error message, documented the error in setup notes, and added database column comments for stride units.
+
+Follow-up update: added explicit units across workout form labels, segment headers, saved log metric values, and CSV export headers.
+
+## Added or Modified
+
+- `src/App.tsx`
+- `supabase/schema.sql`
+- `supabase/SETUP.md`
+- `.ai/TASKS.md`
+- `.ai/HANDOFF.md`
+
+## Verified This Round
+
+- `npm run lint` passes.
+- `npm run build` passes.
+
+Build produced non-blocking bundle-size/plugin timing warnings only.
+
+## Still Need Verification
+
+- Deploy/push this frontend validation fix.
+- Re-test live authenticated workout save through Magic Link.
+- Enter stride values in meters, for example `1.20` for 120 cm.
+- Confirm the live page now blocks `120` in stride fields before reaching Supabase.
+
+## Previous Round
+
 Investigated a save failure when entering yesterday's workout, improved Supabase save diagnostics, relaxed wearable metric constraints, added weekend missed-session adjustment guidance, added fartlek sessions to the seed plan, and added an Email link generator for remote form access.
 
 ## Root Cause Found
