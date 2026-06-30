@@ -87,7 +87,23 @@ npm run dev -- --host 127.0.0.1 --port 5173
 4. 到近期活動或 12 週課表展開某一天，填寫訓練資料並儲存。
 5. 重新整理後確認昨天或指定日期的紀錄仍存在。
 
-## 7. 常見錯誤
+## 7. 遠端填寫自動寄信
+
+前端不保存 Email provider secret。真正自動寄出填寫連結需部署 Supabase Edge Function：
+
+```powershell
+supabase functions deploy send-fill-link
+supabase secrets set RESEND_API_KEY=你的_resend_api_key
+supabase secrets set RESEND_FROM_EMAIL="Run Log <noreply@你的已驗證網域>"
+```
+
+需求：
+
+- Resend API key 必須放在 Supabase secrets，不可放入 `.env.local` 或 GitHub Pages secrets。
+- `RESEND_FROM_EMAIL` 必須使用 Resend 已驗證的寄件網域；測試網域通常只能寄給受限收件者。
+- 前端「自動寄出」會呼叫 `send-fill-link` Edge Function；若 Function 未部署或 secrets 未設定，仍可用 Email 草稿或複製連結 fallback。
+
+## 8. 常見錯誤
 
 ### `PGRST205` 或 `PGRST204`
 

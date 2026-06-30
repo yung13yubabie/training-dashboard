@@ -418,6 +418,7 @@ function App() {
   const [makeupDay, setMakeupDay] = useState<'Sat' | 'Sun'>('Sat')
   const [weekendSessions, setWeekendSessions] = useState(2)
   const [mailTo, setMailTo] = useState('')
+  const [isSendingFillLink, setIsSendingFillLink] = useState(false)
   const [remoteFillDate, setRemoteFillDate] = useState(requestedWorkoutDate)
   const [selectedWeek, setSelectedWeek] = useState(0)
   const [planOverrides, setPlanOverrides] = useState<Record<string, PlanOverride>>({})
@@ -883,6 +884,29 @@ function App() {
     }
   }
 
+  const sendRemoteFillEmail = async () => {
+    if (!supabase || !session || !canCreateRemoteMail) return
+    setIsSendingFillLink(true)
+    const { error } = await supabase.functions.invoke('send-fill-link', {
+      body: {
+        to: trimmedMailTo,
+        fillUrl: remoteFillUrl,
+        workoutDate: remoteFillDate || todayIso,
+      },
+    })
+
+    if (error) {
+      console.error('Send fill link failed', error)
+      setNotice({
+        kind: 'error',
+        text: `自動寄信失敗：${error.message}。請確認 Edge Function 已部署，且 RESEND_API_KEY / RESEND_FROM_EMAIL 已設定；也可先用 Email 草稿或複製連結。`,
+      })
+    } else {
+      setNotice({ kind: 'ok', text: `已寄出 ${remoteFillDate || todayIso} 的填寫連結給 ${trimmedMailTo}。` })
+    }
+    setIsSendingFillLink(false)
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="主要導覽">
@@ -1078,7 +1102,7 @@ function App() {
         <section className="panel remote-panel">
           <div className="section-heading">
             <span><Mail size={18} /> 遠端填寫 / Email 連結</span>
-            <span className="muted">目前用 Email 開啟填寫連結；真正自動寄信需另外接 Supabase Edge Function 或 Email API。</span>
+            <span className="muted">可用 Edge Function 自動寄出；未設定 Email provider 時可退回草稿或複製連結。</span>
           </div>
           <div className="remote-grid">
             <label>
@@ -1089,6 +1113,9 @@ function App() {
               填寫日期
               <input type="date" value={remoteFillDate} onChange={(event) => setRemoteFillDate(event.target.value)} />
             </label>
+            <button type="button" onClick={sendRemoteFillEmail} disabled={!session || !supabase || !canCreateRemoteMail || isSendingFillLink}>
+              {isSendingFillLink ? '寄送中...' : '自動寄出'}
+            </button>
             <a className={`button-link ${canCreateRemoteMail ? '' : 'disabled'}`} href={canCreateRemoteMail ? remoteMailHref : undefined} aria-disabled={!canCreateRemoteMail}>
               開啟 Email 草稿
             </a>
@@ -1096,7 +1123,7 @@ function App() {
               複製填寫連結
             </button>
             <p>
-              目前這裡只開啟本機 Email 草稿，不保證真的寄出；如果收件 Email 空白或格式錯誤，請改用複製連結。對方收到連結後，仍需用 Magic Link 登入，填寫後才會回存 Supabase。
+              自動寄出需要已部署的 Supabase Edge Function 與 Email provider secrets；若尚未設定，請用 Email 草稿或複製連結。對方收到連結後，仍需用 Magic Link 登入，填寫後才會回存 Supabase。
             </p>
           </div>
         </section>

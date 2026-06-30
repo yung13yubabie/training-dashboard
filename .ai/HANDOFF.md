@@ -12,11 +12,14 @@ Follow-up update: added an edit toggle in the recent activity feed. Editing from
 
 Follow-up update: redesigned the plan surface with weekly folding. The current training week opens by default, previous/next weeks remain collapsed, and week navigation buttons jump between weeks. Added planned-workout move controls for rain/work/life interruptions, activity delete, 4-week review metrics, and date-specific remote fill links.
 
+Follow-up update: added `send-fill-link` Supabase Edge Function for true automatic remote fill email via Resend. The frontend now has an automatic send button using `supabase.functions.invoke`, while retaining Email draft and copy-link fallbacks.
+
 ## Added or Modified
 
 - `src/App.tsx`
 - `src/App.css`
 - `src/types.ts`
+- `supabase/functions/send-fill-link/index.ts`
 - `.ai/CURRENT_STATE.md`
 - `supabase/schema.sql`
 - `supabase/SETUP.md`
@@ -28,6 +31,7 @@ Follow-up update: redesigned the plan surface with weekly folding. The current t
 - `npm run lint` passes.
 - `npm run build` passes.
 - Render smoke check with Playwright fallback passed at 1440x1000 and 390x844: page renders, no console errors, 12 week sections exist, current week is open, remote fill date query parameter is applied.
+- Render smoke check after email-function UI update passed: no console errors, remote panel shows automatic send/fallback options, date query parameter is applied, and only one current week is open.
 
 Build produced non-blocking bundle-size/plugin timing warnings only.
 
@@ -41,7 +45,7 @@ Build produced non-blocking bundle-size/plugin timing warnings only.
 - Verify the remote fill flow outside the happy path: invalid email disables Email draft, copy-link works, and the receiver still must Magic Link login.
 - Verify planned-workout move persists on live Supabase after Magic Link login.
 - Verify activity delete cascades segment rows in live Supabase.
-- True automatic email sending remains unimplemented; it still requires Supabase Edge Functions plus an email provider and secrets outside the frontend.
+- Deploy `supabase/functions/send-fill-link`, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase secrets, then verify actual Resend delivery.
 
 ## Previous Round
 

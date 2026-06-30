@@ -15,7 +15,8 @@
 - Verify deployed planned-workout move flow against live Supabase.
 - Verify deployed activity delete flow against live Supabase.
 - Verify date-specific remote fill link, for example `?date=YYYY-MM-DD#plan`.
-- If true automatic email sending is needed, design a backend flow with Supabase Edge Functions plus an email provider; do not put provider secrets in the frontend.
+- Deploy `send-fill-link` Supabase Edge Function and set `RESEND_API_KEY` / `RESEND_FROM_EMAIL` secrets.
+- Verify automatic remote fill email delivery through Resend.
 
 ## DOING
 
@@ -57,3 +58,4 @@
 - Added client-side validation and clearer messaging for `22003 numeric field overflow` caused by unit/range mismatches in wearable numeric fields.
 - Added recent-activity edit flow and remote fill link fallback controls.
 - Added weekly plan accordion UI, planned-workout move controls, activity delete, 4-week review metrics, and date-specific remote fill links.
+- Added `send-fill-link` Supabase Edge Function and frontend automatic email send action with Email draft/copy-link fallbacks.
