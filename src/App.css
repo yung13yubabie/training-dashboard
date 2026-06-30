@@ -418,6 +418,23 @@
   padding: 1rem;
 }
 
+.activity-body {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding: 1rem;
+}
+
+.activity-body .log-detail {
+  border-top: 0;
+  padding: 0;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .prescription {
   border-left: 3px solid var(--orange);
   padding-left: 0.75rem;

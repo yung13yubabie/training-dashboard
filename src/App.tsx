@@ -208,6 +208,8 @@ const toInteger = (value: FormDataEntryValue | null, fallback: number) => {
 
 const valueOrEmpty = (value: number | string | null | undefined) => (value === null || value === undefined ? '' : String(value))
 
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
 const validateNumericRanges = (ranges: NumericRange[]) => {
   const invalid = ranges.find(({ value, min, max }) => {
     if (value === null) return false
@@ -614,7 +616,9 @@ function App() {
     setSavingTargetId(targetId)
 
     const persistedWorkoutId =
-      workout && plannedWorkouts.some((planned) => planned.id === workout.id) ? workout.id : null
+      workout && plannedWorkouts.some((planned) => planned.id === workout.id)
+        ? workout.id
+        : existingLogForDate?.planned_workout_id ?? null
     const log: WorkoutLog = {
       ...emptyLog(persistedWorkoutId),
       user_id: session.user.id,
@@ -747,9 +751,22 @@ function App() {
   }
 
   const siteUrl = import.meta.env.VITE_SITE_URL ?? window.location.origin
-  const remoteMailHref = `mailto:${encodeURIComponent(mailTo)}?subject=${encodeURIComponent('跑步訓練資料填寫連結')}&body=${encodeURIComponent(
-    `請用 Magic Link 登入後填寫訓練資料：\n${siteUrl}\n\n規則：一天只能保留一筆訓練；同一天再次儲存會更新原資料。`,
+  const remoteFillUrl = `${siteUrl.replace(/\/$/, '')}/#plan`
+  const trimmedMailTo = mailTo.trim()
+  const canCreateRemoteMail = isValidEmail(trimmedMailTo)
+  const remoteMailHref = `mailto:${encodeURIComponent(trimmedMailTo)}?subject=${encodeURIComponent('跑步訓練資料填寫連結')}&body=${encodeURIComponent(
+    `請用 Magic Link 登入後填寫訓練資料：\n${remoteFillUrl}\n\n規則：一天只能保留一筆訓練；同一天再次儲存會更新原資料。\n\n如果信件軟體沒有開啟，請直接複製上方連結貼給對方。`,
   )}`
+
+  const copyRemoteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(remoteFillUrl)
+      setNotice({ kind: 'ok', text: '已複製填寫連結。對方仍需用 Magic Link 登入後才能回填。' })
+    } catch (error) {
+      console.error('Copy remote fill link failed', error)
+      setNotice({ kind: 'error', text: `複製失敗，請手動複製：${remoteFillUrl}` })
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -939,10 +956,15 @@ function App() {
               收件 Email
               <input type="email" value={mailTo} onChange={(event) => setMailTo(event.target.value)} placeholder="you@example.com" />
             </label>
-            <a className={`button-link ${mailTo ? '' : 'disabled'}`} href={mailTo ? remoteMailHref : undefined}>
-              產生填寫 Email
+            <a className={`button-link ${canCreateRemoteMail ? '' : 'disabled'}`} href={canCreateRemoteMail ? remoteMailHref : undefined} aria-disabled={!canCreateRemoteMail}>
+              開啟 Email 草稿
             </a>
-            <p>對方收到連結後，登入 Magic Link，在網站填寫後會直接回存 Supabase 表格。</p>
+            <button type="button" className="secondary" onClick={copyRemoteLink}>
+              複製填寫連結
+            </button>
+            <p>
+              目前這裡只開啟本機 Email 草稿，不保證真的寄出；如果收件 Email 空白或格式錯誤，請改用複製連結。對方收到連結後，仍需用 Magic Link 登入，填寫後才會回存 Supabase。
+            </p>
           </div>
         </section>
 
@@ -952,7 +974,13 @@ function App() {
               <span><Activity size={18} /> 近期活動</span>
               <span className="muted">{logs.length ? `共 ${logs.length} 天，可展開回看` : '尚無活動紀錄'}</span>
             </div>
-            <ActivityFeed logs={logs} segmentsByLog={segmentsByLog} />
+            <ActivityFeed
+              logs={logs}
+              segmentsByLog={segmentsByLog}
+              canSubmit={Boolean(session && supabase && dataStatus !== 'schema-missing')}
+              isSaving={savingTargetId !== null}
+              onSubmit={submitLog}
+            />
           </article>
 
           <article className="panel chart-panel">
@@ -1114,7 +1142,7 @@ function WorkoutLogForm({
   isSaving,
   onSubmit,
 }: {
-  workout: PlannedWorkout
+  workout: PlannedWorkout | null
   existingLog: WorkoutLog | null
   existingSegments: WorkoutSegment[]
   canSubmit: boolean
@@ -1150,7 +1178,7 @@ function WorkoutLogForm({
       <fieldset>
         <legend>總體資料</legend>
         <Field label="日期（一天只能一筆）" name="workout_date" type="date" defaultValue={existingLog?.workout_date ?? todayIso} />
-        <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout.duration_min ?? 45)} min="0" />
+        <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout?.duration_min ?? 45)} min="0" />
         <Field label="總距離（km）" name="distance_km" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.distance_km)} />
         <Field label="消耗（kcal）" name="calories" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.calories)} />
         <Field label="平均配速（min/km）" name="avg_pace" placeholder="5:20" defaultValue={existingLog?.avg_pace ?? ''} />
@@ -1243,9 +1271,19 @@ function WorkoutLogForm({
 function ActivityFeed({
   logs,
   segmentsByLog,
+  canSubmit,
+  isSaving,
+  onSubmit,
 }: {
   logs: WorkoutLog[]
   segmentsByLog: Map<string, WorkoutSegment[]>
+  canSubmit: boolean
+  isSaving: boolean
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    existingLog: WorkoutLog | null,
+  ) => Promise<void>
 }) {
   if (!logs.length) {
     return <EmptyState title="尚無活動" text="登入並展開課表填寫後，活動會保留在這裡，明天也能回看。" />
@@ -1254,19 +1292,69 @@ function ActivityFeed({
   return (
     <div className="activity-feed">
       {logs.map((log) => (
-        <details className="activity-item" key={log.id ?? `${log.workout_date}-${log.duration_min}`}>
-          <summary>
-            <div className="activity-avatar">跑</div>
-            <span className="summary-main">
-              <strong>{log.workout_date}</strong>
-              <small>{log.distance_km ?? '-'} km · {log.duration_min} 分 · RPE {log.rpe} · 均心 {log.avg_hr ?? '-'}</small>
-            </span>
-            <span className="log-state done">查看</span>
-          </summary>
-          <LogDetail log={log} segments={log.id ? segmentsByLog.get(log.id) ?? [] : []} />
-        </details>
+        <ActivityItem
+          key={log.id ?? `${log.workout_date}-${log.duration_min}`}
+          log={log}
+          segments={log.id ? segmentsByLog.get(log.id) ?? [] : []}
+          canSubmit={canSubmit}
+          isSaving={isSaving}
+          onSubmit={onSubmit}
+        />
       ))}
     </div>
+  )
+}
+
+function ActivityItem({
+  log,
+  segments,
+  canSubmit,
+  isSaving,
+  onSubmit,
+}: {
+  log: WorkoutLog
+  segments: WorkoutSegment[]
+  canSubmit: boolean
+  isSaving: boolean
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    existingLog: WorkoutLog | null,
+  ) => Promise<void>
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+
+  return (
+    <details className="activity-item">
+      <summary>
+        <div className="activity-avatar">跑</div>
+        <span className="summary-main">
+          <strong>{log.workout_date}</strong>
+          <small>{log.distance_km ?? '-'} km · {log.duration_min} 分 · RPE {log.rpe} · 均心 {log.avg_hr ?? '-'}</small>
+        </span>
+        <span className="log-state done">查看</span>
+      </summary>
+      <div className="activity-body">
+        <div className="edit-actions">
+          <button type="button" className="secondary mini-button" onClick={() => setIsEditing((value) => !value)}>
+            {isEditing ? '收合編輯' : '編輯這筆'}
+          </button>
+        </div>
+        {isEditing ? (
+          <WorkoutLogForm
+            key={`activity-edit-${log.id ?? log.workout_date}`}
+            workout={null}
+            existingLog={log}
+            existingSegments={segments}
+            canSubmit={canSubmit}
+            isSaving={isSaving}
+            onSubmit={onSubmit}
+          />
+        ) : (
+          <LogDetail log={log} segments={segments} />
+        )}
+      </div>
+    </details>
   )
 }
 

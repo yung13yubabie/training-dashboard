@@ -8,9 +8,12 @@ Implemented client-side range validation before Supabase writes, clarified strid
 
 Follow-up update: added explicit units across workout form labels, segment headers, saved log metric values, and CSV export headers.
 
+Follow-up update: added an edit toggle in the recent activity feed. Editing from this feed reuses the workout log form and preserves the existing `planned_workout_id` instead of clearing the plan link. Hardened remote fill link generation by validating the recipient email before opening a `mailto:` draft and adding a copy-link fallback.
+
 ## Added or Modified
 
 - `src/App.tsx`
+- `src/App.css`
 - `supabase/schema.sql`
 - `supabase/SETUP.md`
 - `.ai/TASKS.md`
@@ -29,6 +32,8 @@ Build produced non-blocking bundle-size/plugin timing warnings only.
 - Re-test live authenticated workout save through Magic Link.
 - Enter stride values in meters, for example `1.20` for 120 cm.
 - Confirm the live page now blocks `120` in stride fields before reaching Supabase.
+- Verify a recent activity can be opened, edited, saved, refreshed, and still linked to its planned workout when applicable.
+- Verify the remote fill flow outside the happy path: invalid email disables Email draft, copy-link works, and the receiver still must Magic Link login.
 
 ## Previous Round
 
