@@ -32,6 +32,7 @@ import type { PlannedWorkout, WorkoutLog, WorkoutSegment } from './types'
 
 const planSeed = buildTrainingPlan()
 const todayIso = new Date().toISOString().slice(0, 10)
+const requestedWorkoutDate = new URLSearchParams(window.location.search).get('date') || todayIso
 
 type Notice = { kind: 'ok' | 'warn' | 'error'; text: string } | null
 type DataStatus = 'idle' | 'ready' | 'schema-missing' | 'auth-or-rls' | 'unknown-error'
@@ -65,6 +66,16 @@ type NumericRange = {
   min?: number
   max?: number
   hint?: string
+}
+type PlanMoveDraft = {
+  week_number: number
+  day_label: string
+  reason: string
+}
+type PlanOverride = {
+  week_number: number
+  day_label: string
+  reason?: string
 }
 
 const dayLabels: Record<string, string> = {
@@ -150,9 +161,9 @@ Object.assign(dataLabels, {
   workout_segments: '分段資料',
 })
 
-const emptyLog = (plannedWorkoutId: string | null): WorkoutLog => ({
+const emptyLog = (plannedWorkoutId: string | null, workoutDate = todayIso): WorkoutLog => ({
   planned_workout_id: plannedWorkoutId,
-  workout_date: todayIso,
+  workout_date: workoutDate,
   completed: true,
   duration_min: 45,
   distance_km: null,
@@ -209,6 +220,35 @@ const toInteger = (value: FormDataEntryValue | null, fallback: number) => {
 const valueOrEmpty = (value: number | string | null | undefined) => (value === null || value === undefined ? '' : String(value))
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
+const dayOptions = ['Tue', 'Wed', 'Thu', 'Sat', 'Sun']
+
+const applyPlanOverrides = (plan: PlannedWorkout[], overrides: Record<string, PlanOverride>) =>
+  sortPlan(
+    plan.map((workout) => {
+      const override = overrides[workout.id]
+      if (!override) return workout
+      return {
+        ...workout,
+        week_number: override.week_number,
+        day_label: override.day_label,
+        prescription: override.reason ? `${workout.prescription}\n調整原因：${override.reason}` : workout.prescription,
+      }
+    }),
+  )
+
+const groupPlanByWeek = (plan: PlannedWorkout[]) =>
+  plan.reduce((groups, workout) => {
+    const items = groups.get(workout.week_number) ?? []
+    items.push(workout)
+    groups.set(workout.week_number, items)
+    return groups
+  }, new Map<number, PlannedWorkout[]>())
+
+const getFirstIncompleteWeek = (plan: PlannedWorkout[], logsByWorkout: Map<string, WorkoutLog[]>) =>
+  plan.find((workout) => !(logsByWorkout.get(workout.id) ?? []).some((log) => log.completed))?.week_number ??
+  plan.at(-1)?.week_number ??
+  1
 
 const validateNumericRanges = (ranges: NumericRange[]) => {
   const invalid = ranges.find(({ value, min, max }) => {
@@ -378,8 +418,14 @@ function App() {
   const [makeupDay, setMakeupDay] = useState<'Sat' | 'Sun'>('Sat')
   const [weekendSessions, setWeekendSessions] = useState(2)
   const [mailTo, setMailTo] = useState('')
+  const [remoteFillDate, setRemoteFillDate] = useState(requestedWorkoutDate)
+  const [selectedWeek, setSelectedWeek] = useState(0)
+  const [planOverrides, setPlanOverrides] = useState<Record<string, PlanOverride>>({})
 
-  const activePlan = plannedWorkouts.length ? plannedWorkouts : planSeed
+  const activePlan = useMemo(
+    () => applyPlanOverrides(plannedWorkouts.length ? plannedWorkouts : planSeed, planOverrides),
+    [plannedWorkouts, planOverrides],
+  )
   const setupBlocked = !isSupabaseConfigured
   const hasRemotePlan = plannedWorkouts.length > 0
 
@@ -439,6 +485,21 @@ function App() {
         })),
     [logs],
   )
+
+  const currentTrainingWeek = useMemo(() => getFirstIncompleteWeek(activePlan, logsByWorkout), [activePlan, logsByWorkout])
+  const planByWeek = useMemo(() => groupPlanByWeek(activePlan), [activePlan])
+  const planWeeks = useMemo(() => [...planByWeek.keys()].sort((a, b) => a - b), [planByWeek])
+  const visibleWeek = planWeeks.includes(selectedWeek) ? selectedWeek : currentTrainingWeek
+  const fourWeekReview = useMemo(() => {
+    const latest = logs.slice(0, 28)
+    const totalMinutes = latest.reduce((sum, log) => sum + log.duration_min, 0)
+    const zone2Minutes = latest.reduce((sum, log) => sum + log.zone2_min, 0)
+    const qualityCount = latest.filter((log) => log.zone4_min + log.zone5_min > 0 || log.rpe >= 7).length
+    const maxPain = Math.max(0, ...latest.map((log) => log.pain))
+    const avgFatigue = latest.length ? Math.round((latest.reduce((sum, log) => sum + log.fatigue, 0) / latest.length) * 10) / 10 : 0
+
+    return { totalMinutes, zone2Minutes, qualityCount, maxPain, avgFatigue, count: latest.length }
+  }, [logs])
 
   useEffect(() => {
     if (!supabase) return
@@ -620,7 +681,7 @@ function App() {
         ? workout.id
         : existingLogForDate?.planned_workout_id ?? null
     const log: WorkoutLog = {
-      ...emptyLog(persistedWorkoutId),
+      ...emptyLog(persistedWorkoutId, workoutDate),
       user_id: session.user.id,
       planned_workout_id: persistedWorkoutId,
       workout_date: workoutDate,
@@ -719,6 +780,60 @@ function App() {
     setSavingTargetId(null)
   }
 
+  const movePlannedWorkout = async (workout: PlannedWorkout, draft: PlanMoveDraft) => {
+    const nextOverride = {
+      week_number: draft.week_number,
+      day_label: draft.day_label,
+      reason: draft.reason.trim() || undefined,
+    }
+
+    if (!plannedWorkouts.some((planned) => planned.id === workout.id)) {
+      setPlanOverrides((overrides) => ({ ...overrides, [workout.id]: nextOverride }))
+      setSelectedWeek(draft.week_number)
+      setNotice({ kind: 'ok', text: '已在本機預覽課表移動；登入並寫入 Supabase 後才能永久保存。' })
+      return
+    }
+
+    if (!supabase || !session) return
+    setIsLoading(true)
+    const { error } = await supabase
+      .from('planned_workouts')
+      .update({
+        week_number: draft.week_number,
+        day_label: draft.day_label,
+        prescription: draft.reason.trim() ? `${workout.prescription}\n調整原因：${draft.reason.trim()}` : workout.prescription,
+      })
+      .eq('id', workout.id)
+      .eq('user_id', session.user.id)
+
+    if (error) {
+      console.error('Move planned workout failed', error)
+      setNotice({ kind: 'error', text: buildSaveMessage('移動課表', error) })
+    } else {
+      setNotice({ kind: 'ok', text: `已移動到第 ${draft.week_number} 週 ${dayLabels[draft.day_label] ?? draft.day_label}。` })
+      setSelectedWeek(draft.week_number)
+      await refreshData()
+    }
+    setIsLoading(false)
+  }
+
+  const deleteWorkoutLog = async (log: WorkoutLog) => {
+    if (!log.id || !supabase || !session) return
+    const confirmed = window.confirm(`確定刪除 ${log.workout_date} 的訓練紀錄？分段資料也會一併刪除。`)
+    if (!confirmed) return
+
+    setSavingTargetId(log.id)
+    const { error } = await supabase.from('workout_logs').delete().eq('id', log.id).eq('user_id', session.user.id)
+    if (error) {
+      console.error('Delete workout log failed', error)
+      setNotice({ kind: 'error', text: buildSaveMessage('刪除訓練紀錄', error) })
+    } else {
+      setNotice({ kind: 'ok', text: '已刪除訓練紀錄。' })
+      await refreshData()
+    }
+    setSavingTargetId(null)
+  }
+
   const exportJson = () => {
     const exportPlan = plannedWorkouts.length ? plannedWorkouts : planSeed
     const blob = new Blob([JSON.stringify({ plannedWorkouts: exportPlan, logs, segments, trailRoutes }, null, 2)], {
@@ -751,7 +866,7 @@ function App() {
   }
 
   const siteUrl = import.meta.env.VITE_SITE_URL ?? window.location.origin
-  const remoteFillUrl = `${siteUrl.replace(/\/$/, '')}/#plan`
+  const remoteFillUrl = `${siteUrl.replace(/\/$/, '')}/?date=${encodeURIComponent(remoteFillDate || todayIso)}#plan`
   const trimmedMailTo = mailTo.trim()
   const canCreateRemoteMail = isValidEmail(trimmedMailTo)
   const remoteMailHref = `mailto:${encodeURIComponent(trimmedMailTo)}?subject=${encodeURIComponent('跑步訓練資料填寫連結')}&body=${encodeURIComponent(
@@ -902,6 +1017,20 @@ function App() {
               寫入 Supabase
             </button>
           </article>
+          <article className="status-card">
+            <div className="section-heading compact">
+              <span><Activity size={18} /> 4 週回顧</span>
+              <span className={fourWeekReview.maxPain >= 4 || fourWeekReview.avgFatigue >= 7 ? 'risk high' : 'risk ok'}>
+                {fourWeekReview.count ? '有紀錄' : '待累積'}
+              </span>
+            </div>
+            <div className="mini-metrics">
+              <Metric label="總時間" value={`${fourWeekReview.totalMinutes} 分`} />
+              <Metric label="Zone 2" value={`${fourWeekReview.zone2Minutes} 分`} />
+              <Metric label="品質課" value={`${fourWeekReview.qualityCount} 次`} />
+              <Metric label="疼痛峰值" value={`${fourWeekReview.maxPain} / 10`} />
+            </div>
+          </article>
         </section>
 
         <section className="panel adjustment-panel" id="adjustment">
@@ -956,6 +1085,10 @@ function App() {
               收件 Email
               <input type="email" value={mailTo} onChange={(event) => setMailTo(event.target.value)} placeholder="you@example.com" />
             </label>
+            <label>
+              填寫日期
+              <input type="date" value={remoteFillDate} onChange={(event) => setRemoteFillDate(event.target.value)} />
+            </label>
             <a className={`button-link ${canCreateRemoteMail ? '' : 'disabled'}`} href={canCreateRemoteMail ? remoteMailHref : undefined} aria-disabled={!canCreateRemoteMail}>
               開啟 Email 草稿
             </a>
@@ -980,6 +1113,7 @@ function App() {
               canSubmit={Boolean(session && supabase && dataStatus !== 'schema-missing')}
               isSaving={savingTargetId !== null}
               onSubmit={submitLog}
+              onDelete={deleteWorkoutLog}
             />
           </article>
 
@@ -1022,19 +1156,34 @@ function App() {
         <section className="panel" id="plan">
           <div className="section-heading">
             <span><CalendarDays size={18} /> 12 週課表</span>
-            <span className="muted">點開任一課表即可填寫當天運動數據；同一天再次儲存會覆蓋。</span>
+            <span className="muted">預設顯示目前週；前後週可展開。課表可因下雨、加班或週末二三練需求移動。</span>
           </div>
-          <div className="plan-list">
-            {activePlan.map((workout) => (
-              <WorkoutAccordion
-                key={workout.id}
-                workout={workout}
-                logs={logsByWorkout.get(workout.id) ?? []}
-                todayLog={logsByDate.get(todayIso) ?? null}
+          <div className="week-toolbar" aria-label="課表週次導覽">
+            <button type="button" className="secondary" onClick={() => setSelectedWeek(Math.max(1, visibleWeek - 1))} disabled={visibleWeek <= planWeeks[0]}>
+              上一週
+            </button>
+            <strong>第 {visibleWeek} 週</strong>
+            <button type="button" className="secondary" onClick={() => setSelectedWeek(Math.min(planWeeks.at(-1) ?? visibleWeek, visibleWeek + 1))} disabled={visibleWeek >= (planWeeks.at(-1) ?? visibleWeek)}>
+              下一週
+            </button>
+            <button type="button" className="ghost" onClick={() => setSelectedWeek(currentTrainingWeek)}>
+              回到目前週
+            </button>
+          </div>
+          <div className="week-list">
+            {planWeeks.map((week) => (
+              <WeekPlanSection
+                key={week}
+                week={week}
+                workouts={planByWeek.get(week) ?? []}
+                isCurrent={week === visibleWeek}
+                logsByWorkout={logsByWorkout}
+                logsByDate={logsByDate}
                 segmentsByLog={segmentsByLog}
                 canSubmit={Boolean(session && supabase && dataStatus !== 'schema-missing')}
-                isSaving={savingTargetId !== null}
+                isSaving={savingTargetId !== null || isLoading}
                 onSubmit={submitLog}
+                onMove={movePlannedWorkout}
               />
             ))}
           </div>
@@ -1072,6 +1221,64 @@ function App() {
   )
 }
 
+function WeekPlanSection({
+  week,
+  workouts,
+  isCurrent,
+  logsByWorkout,
+  logsByDate,
+  segmentsByLog,
+  canSubmit,
+  isSaving,
+  onSubmit,
+  onMove,
+}: {
+  week: number
+  workouts: PlannedWorkout[]
+  isCurrent: boolean
+  logsByWorkout: Map<string, WorkoutLog[]>
+  logsByDate: Map<string, WorkoutLog>
+  segmentsByLog: Map<string, WorkoutSegment[]>
+  canSubmit: boolean
+  isSaving: boolean
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+    workout: PlannedWorkout | null,
+    existingLog: WorkoutLog | null,
+  ) => Promise<void>
+  onMove: (workout: PlannedWorkout, draft: PlanMoveDraft) => Promise<void>
+}) {
+  const totalMinutes = workouts.reduce((sum, workout) => sum + (workout.duration_min ?? 0), 0)
+  const keyCount = workouts.filter((workout) => workout.priority === 'key').length
+
+  return (
+    <details className="week-section" open={isCurrent}>
+      <summary>
+        <span className={isCurrent ? 'week-badge current' : 'week-badge'}>{isCurrent ? '目前週' : `第 ${week} 週`}</span>
+        <span className="summary-main">
+          <strong>第 {week} 週課表</strong>
+          <small>{workouts.length} 課 · {totalMinutes} 分 · 關鍵課 {keyCount} 個</small>
+        </span>
+      </summary>
+      <div className="plan-list">
+        {workouts.map((workout) => (
+          <WorkoutAccordion
+            key={workout.id}
+            workout={workout}
+            logs={logsByWorkout.get(workout.id) ?? []}
+                todayLog={logsByDate.get(requestedWorkoutDate) ?? null}
+            segmentsByLog={segmentsByLog}
+            canSubmit={canSubmit}
+            isSaving={isSaving}
+            onSubmit={onSubmit}
+            onMove={onMove}
+          />
+        ))}
+      </div>
+    </details>
+  )
+}
+
 function WorkoutAccordion({
   workout,
   logs,
@@ -1080,6 +1287,7 @@ function WorkoutAccordion({
   canSubmit,
   isSaving,
   onSubmit,
+  onMove,
 }: {
   workout: PlannedWorkout
   logs: WorkoutLog[]
@@ -1092,10 +1300,16 @@ function WorkoutAccordion({
     workout: PlannedWorkout | null,
     existingLog: WorkoutLog | null,
   ) => Promise<void>
+  onMove: (workout: PlannedWorkout, draft: PlanMoveDraft) => Promise<void>
 }) {
   const latestLog = logs[0] ?? null
   const formLog = latestLog ?? todayLog
   const formSegments = formLog?.id ? segmentsByLog.get(formLog.id) ?? [] : []
+  const [moveDraft, setMoveDraft] = useState<PlanMoveDraft>({
+    week_number: workout.week_number,
+    day_label: workout.day_label,
+    reason: '',
+  })
 
   return (
     <details className="workout-accordion">
@@ -1111,6 +1325,38 @@ function WorkoutAccordion({
         <div className="prescription">
           <strong>課表內容</strong>
           <p>{workout.prescription}</p>
+        </div>
+        <div className="move-panel">
+          <strong>移動 / 補課</strong>
+          <label>
+            週次
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={moveDraft.week_number}
+              onChange={(event) => setMoveDraft((draft) => ({ ...draft, week_number: Number(event.target.value) }))}
+            />
+          </label>
+          <label>
+            目標日
+            <select value={moveDraft.day_label} onChange={(event) => setMoveDraft((draft) => ({ ...draft, day_label: event.target.value }))}>
+              {dayOptions.map((day) => (
+                <option key={day} value={day}>{dayLabels[day] ?? day}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            原因
+            <input
+              value={moveDraft.reason}
+              onChange={(event) => setMoveDraft((draft) => ({ ...draft, reason: event.target.value }))}
+              placeholder="下雨、加班、身體狀態、週末二練"
+            />
+          </label>
+          <button type="button" className="secondary" onClick={() => onMove(workout, moveDraft)} disabled={isSaving}>
+            套用移動
+          </button>
         </div>
         {logs.length > 0 && (
           <div className="log-history compact-history">
@@ -1177,8 +1423,8 @@ function WorkoutLogForm({
     <form className="log-form" onSubmit={(event) => onSubmit(event, workout, existingLog)}>
       <fieldset>
         <legend>總體資料</legend>
-        <Field label="日期（一天只能一筆）" name="workout_date" type="date" defaultValue={existingLog?.workout_date ?? todayIso} />
-        <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout?.duration_min ?? 45)} min="0" />
+        <Field label="日期（一天只能一筆）" name="workout_date" type="date" defaultValue={existingLog?.workout_date ?? requestedWorkoutDate} />
+      <Field label="總時間（分鐘）" name="duration_min" type="number" defaultValue={String(existingLog?.duration_min ?? workout?.duration_min ?? 45)} min="0" />
         <Field label="總距離（km）" name="distance_km" type="number" step="0.01" min="0" defaultValue={valueOrEmpty(existingLog?.distance_km)} />
         <Field label="消耗（kcal）" name="calories" type="number" min="0" defaultValue={valueOrEmpty(existingLog?.calories)} />
         <Field label="平均配速（min/km）" name="avg_pace" placeholder="5:20" defaultValue={existingLog?.avg_pace ?? ''} />
@@ -1274,6 +1520,7 @@ function ActivityFeed({
   canSubmit,
   isSaving,
   onSubmit,
+  onDelete,
 }: {
   logs: WorkoutLog[]
   segmentsByLog: Map<string, WorkoutSegment[]>
@@ -1284,6 +1531,7 @@ function ActivityFeed({
     workout: PlannedWorkout | null,
     existingLog: WorkoutLog | null,
   ) => Promise<void>
+  onDelete: (log: WorkoutLog) => Promise<void>
 }) {
   if (!logs.length) {
     return <EmptyState title="尚無活動" text="登入並展開課表填寫後，活動會保留在這裡，明天也能回看。" />
@@ -1299,6 +1547,7 @@ function ActivityFeed({
           canSubmit={canSubmit}
           isSaving={isSaving}
           onSubmit={onSubmit}
+          onDelete={onDelete}
         />
       ))}
     </div>
@@ -1311,6 +1560,7 @@ function ActivityItem({
   canSubmit,
   isSaving,
   onSubmit,
+  onDelete,
 }: {
   log: WorkoutLog
   segments: WorkoutSegment[]
@@ -1321,6 +1571,7 @@ function ActivityItem({
     workout: PlannedWorkout | null,
     existingLog: WorkoutLog | null,
   ) => Promise<void>
+  onDelete: (log: WorkoutLog) => Promise<void>
 }) {
   const [isEditing, setIsEditing] = useState(false)
 
@@ -1338,6 +1589,9 @@ function ActivityItem({
         <div className="edit-actions">
           <button type="button" className="secondary mini-button" onClick={() => setIsEditing((value) => !value)}>
             {isEditing ? '收合編輯' : '編輯這筆'}
+          </button>
+          <button type="button" className="ghost mini-button" onClick={() => onDelete(log)} disabled={isSaving}>
+            刪除
           </button>
         </div>
         {isEditing ? (

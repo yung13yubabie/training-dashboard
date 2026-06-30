@@ -11,6 +11,10 @@
 - Deploy the `22003` frontend validation fix and verify live workout save with stride values entered in meters.
 - Verify deployed activity edit flow from the recent activity feed.
 - Verify remote fill link flow: Email draft, copy-link fallback, Magic Link login, and saved workout round trip.
+- Verify deployed weekly plan accordion: current week opens by default and neighboring weeks expand on demand.
+- Verify deployed planned-workout move flow against live Supabase.
+- Verify deployed activity delete flow against live Supabase.
+- Verify date-specific remote fill link, for example `?date=YYYY-MM-DD#plan`.
 - If true automatic email sending is needed, design a backend flow with Supabase Edge Functions plus an email provider; do not put provider secrets in the frontend.
 
 ## DOING
@@ -52,3 +56,4 @@
 - Changed plan import to archive old active plan versions before creating a new active plan.
 - Added client-side validation and clearer messaging for `22003 numeric field overflow` caused by unit/range mismatches in wearable numeric fields.
 - Added recent-activity edit flow and remote fill link fallback controls.
+- Added weekly plan accordion UI, planned-workout move controls, activity delete, 4-week review metrics, and date-specific remote fill links.

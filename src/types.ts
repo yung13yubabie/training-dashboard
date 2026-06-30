@@ -13,6 +13,7 @@ export type PlannedWorkout = {
   id: string
   week_number: number
   day_label: string
+  workout_date?: string | null
   workout_type: WorkoutType
   title: string
   prescription: string

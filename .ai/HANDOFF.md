@@ -10,10 +10,14 @@ Follow-up update: added explicit units across workout form labels, segment heade
 
 Follow-up update: added an edit toggle in the recent activity feed. Editing from this feed reuses the workout log form and preserves the existing `planned_workout_id` instead of clearing the plan link. Hardened remote fill link generation by validating the recipient email before opening a `mailto:` draft and adding a copy-link fallback.
 
+Follow-up update: redesigned the plan surface with weekly folding. The current training week opens by default, previous/next weeks remain collapsed, and week navigation buttons jump between weeks. Added planned-workout move controls for rain/work/life interruptions, activity delete, 4-week review metrics, and date-specific remote fill links.
+
 ## Added or Modified
 
 - `src/App.tsx`
 - `src/App.css`
+- `src/types.ts`
+- `.ai/CURRENT_STATE.md`
 - `supabase/schema.sql`
 - `supabase/SETUP.md`
 - `.ai/TASKS.md`
@@ -23,6 +27,7 @@ Follow-up update: added an edit toggle in the recent activity feed. Editing from
 
 - `npm run lint` passes.
 - `npm run build` passes.
+- Render smoke check with Playwright fallback passed at 1440x1000 and 390x844: page renders, no console errors, 12 week sections exist, current week is open, remote fill date query parameter is applied.
 
 Build produced non-blocking bundle-size/plugin timing warnings only.
 
@@ -34,6 +39,9 @@ Build produced non-blocking bundle-size/plugin timing warnings only.
 - Confirm the live page now blocks `120` in stride fields before reaching Supabase.
 - Verify a recent activity can be opened, edited, saved, refreshed, and still linked to its planned workout when applicable.
 - Verify the remote fill flow outside the happy path: invalid email disables Email draft, copy-link works, and the receiver still must Magic Link login.
+- Verify planned-workout move persists on live Supabase after Magic Link login.
+- Verify activity delete cascades segment rows in live Supabase.
+- True automatic email sending remains unimplemented; it still requires Supabase Edge Functions plus an email provider and secrets outside the frontend.
 
 ## Previous Round
 
